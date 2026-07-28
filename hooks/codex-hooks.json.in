@@ -1,0 +1,33 @@
+{
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent codex --state running"
+        }
+      ]
+    }
+  ],
+  "PermissionRequest": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent codex --state approval"
+        }
+      ],
+      "matcher": "*"
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent codex --state done"
+        }
+      ]
+    }
+  ]
+}

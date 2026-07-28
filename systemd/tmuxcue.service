@@ -1,0 +1,14 @@
+[Unit]
+Description=TmuxCue agent status service
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/tmuxcue-service
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

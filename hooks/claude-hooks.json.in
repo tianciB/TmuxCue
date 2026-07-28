@@ -1,0 +1,44 @@
+{
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent claude --state running"
+        }
+      ],
+      "matcher": "*"
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent claude --state done"
+        }
+      ],
+      "matcher": "*"
+    }
+  ],
+  "Notification": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent claude --state approval"
+        }
+      ],
+      "matcher": "permission_prompt"
+    },
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent claude --state approval"
+        }
+      ],
+      "matcher": "elicitation_dialog"
+    }
+  ]
+}
