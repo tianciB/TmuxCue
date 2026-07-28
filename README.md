@@ -1,21 +1,23 @@
 # TmuxCue
 
-TmuxCue shows the live status, model, and topic of Codex and Claude sessions in tmux windows and regular terminal tabs.
+TmuxCue shows the live status, model, and topic of Codex and Claude sessions in tmux windows and, optionally, regular terminal tabs.
 
 ## Status indicators
 
 | Indicator | Meaning |
 |---|---|
 | ❓ | Waiting for approval or user input |
-| 🌑 → 🌘 | Running |
+| 🌑 → 🌘 in tmux; stable 🌒 in regular terminals when enabled | Running |
 | ✅ | Turn completed; waiting for the next prompt |
 
 Example titles:
 
 ```text
-🌒 codex/gpt-5.6-sol: Analyze the codebase and add tests...
-✅ claude/claude-opus-5: Research image generation milestones...
+🌒 [tmux] codex/gpt-5.6-sol: Analyze the codebase and add tests...
+✅ [term] claude/claude-opus-5: Research image generation milestones...
 ```
+
+`[tmux]` identifies a tmux window. `[term]` identifies a regular terminal when terminal-title override mode is enabled.
 
 For VS Code terminal tabs, use:
 
@@ -34,13 +36,32 @@ cd TmuxCue
 ./install.sh
 ```
 
-## Update
+## Commands
 
 ```bash
-./update.sh
+tmuxcue update
+tmuxcue version
+tmuxcue uninstall
+tmuxcue help
 ```
 
-The updater requires a clean Git worktree, uses `git pull --ff-only`, and runs the same safety checks as installation.
+`tmuxcue update` requires a clean Git worktree, uses `git pull --ff-only`, and runs the same safety checks as installation. Bash, Zsh, and Fish completion files are installed automatically; open a new shell to enable Tab completion.
+
+## Terminal title mode
+
+TmuxCue preserves native Codex and Claude terminal titles by default. Tmux integration remains enabled, but regular-terminal titles are not changed:
+
+```bash
+tmuxcue config terminal-title native
+```
+
+To let TmuxCue own regular-terminal titles and prevent competing running indicators, opt in with:
+
+```bash
+tmuxcue config terminal-title override
+```
+
+Override mode sets Codex `tui.terminal_title = []` and Claude `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1`, while preserving the previous values for uninstall or native mode. It applies only to newly started Codex and Claude sessions; TmuxCue never restarts an existing process.
 
 ## Review Codex hooks
 
@@ -63,13 +84,7 @@ Before trusting them, verify that:
 
 The hooks only record the agent, session ID, state, event name, and timestamp. They do not approve permissions, execute requested tools, or store prompt content.
 
-## Uninstall
-
-```bash
-./uninstall.sh
-```
-
-Uninstalling removes only TmuxCue services, hooks, display options, and installed files. It does not close or restart any tmux pane or terminal AI process.
+Uninstalling with `tmuxcue uninstall` removes only TmuxCue services, hooks, display options, and installed files. It restores the previous native terminal-title settings and does not close or restart any tmux pane or terminal AI process.
 
 ## Security
 
@@ -83,8 +98,6 @@ Uninstalling removes only TmuxCue services, hooks, display options, and installe
 - Excludes every TTY owned by a tmux pane from direct-terminal updates.
 - Stores hook events with `0600` permissions.
 - Runs the user service with `NoNewPrivileges` and `UMask=0077`.
-
-Set `TMUXCUE_TERMINAL_TITLES=0` in the user service environment to disable regular-terminal title updates while keeping tmux integration enabled.
 
 ## License
 

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+import sys
 import time
 
 from . import __version__
@@ -12,6 +13,7 @@ from .core import JsonlTail, Metadata, PaneRow, TerminalRow, icon_for, visual_st
 from .detector import TmuxDetector
 from .events import load_events
 from .metadata import AgentRow, MetadataResolver, default_command
+from .settings import apply_title_mode, source_dir, title_mode, title_override_since
 from .terminal import TerminalDetector, TerminalTitleWriter
 
 HOME = Path.home()
@@ -71,7 +73,11 @@ class IndicatorDaemon:
         self.runtime_interval = float(os.environ.get("TMUXCUE_RUNTIME_INTERVAL", "3"))
         self.prompt_grace = float(os.environ.get("TMUXCUE_PROMPT_GRACE", "8"))
         self.topic_width = int(os.environ.get("TMUXCUE_TOPIC_WIDTH", "38"))
-        self.terminal_titles = os.environ.get("TMUXCUE_TERMINAL_TITLES", "1") != "0"
+        self.terminal_titles = title_mode() == "override"
+        self.terminal_override_since = title_override_since()
+        self.terminal_refresh_interval = float(
+            os.environ.get("TMUXCUE_TERMINAL_REFRESH_INTERVAL", "5")
+        )
 
         self.tmux = TmuxClient()
         self.tmux_detector = TmuxDetector()
@@ -88,18 +94,27 @@ class IndicatorDaemon:
         self.metadata_times: dict[str, float] = {}
         self.runtime_states: dict[str, str | None] = {}
         self.runtime_times: dict[str, float] = {}
+        self.terminal_write_times: dict[str, float] = {}
         self.prompts: dict[str, dict] = {}
         self.recent_prompt_events: dict[str, float] = {}
         self.semantic: dict[str, tuple[str, str]] = {}
         self.last_scan = 0.0
 
     def scan(self) -> None:
+        self.terminal_titles = title_mode() == "override"
+        self.terminal_override_since = title_override_since()
         tmux_rows = self.tmux_detector.scan()
         terminal_rows = (
             self.terminal_detector.scan(self.tmux_detector.pane_ttys)
             if self.terminal_titles
             else {}
         )
+        if self.terminal_override_since:
+            terminal_rows = {
+                target: row
+                for target, row in terminal_rows.items()
+                if row.started_at >= self.terminal_override_since
+            }
         self.rows = {**tmux_rows, **terminal_rows}
         self.tmux_windows = self.tmux.windows()
         self.last_scan = time.time()
@@ -177,6 +192,12 @@ class IndicatorDaemon:
             return ""
         return state
 
+    @staticmethod
+    def format_title(row: AgentRow, state: str, metadata: Metadata, now: float) -> tuple[str, str]:
+        icon = "🌒" if isinstance(row, TerminalRow) and state == "running" else icon_for(state, now)
+        source = "[term]" if isinstance(row, TerminalRow) else "[tmux]"
+        return icon, f"{icon} {source} {metadata.label}".strip()
+
     def apply(self, target: str, row: AgentRow, values: tuple[str, str, str]) -> bool:
         state, icon, title = values
         if isinstance(row, TerminalRow):
@@ -220,12 +241,18 @@ class IndicatorDaemon:
             if prompt is not None and state in {"done", "approval"}:
                 self.prompts.pop(target, None)
 
-            icon = icon_for(state, now)
-            title = f"{icon} {metadata.label}".strip()
+            icon, title = self.format_title(row, state, metadata, now)
             values = (state, icon, title)
-            if self.applied.get(target) != values and self.apply(target, row, values):
+            terminal_refresh = (
+                isinstance(row, TerminalRow)
+                and now - self.terminal_write_times.get(target, 0) >= self.terminal_refresh_interval
+            )
+            if (self.applied.get(target) != values or terminal_refresh) and self.apply(target, row, values):
                 self.applied[target] = values
-                tmux_changed |= isinstance(row, PaneRow)
+                if isinstance(row, TerminalRow):
+                    self.terminal_write_times[target] = now
+                else:
+                    tmux_changed = True
 
             semantic_value = (state, metadata.label)
             if self.semantic.get(target) != semantic_value:
@@ -252,6 +279,7 @@ class IndicatorDaemon:
         self.metadata_times.pop(target, None)
         self.runtime_states.pop(target, None)
         self.runtime_times.pop(target, None)
+        self.terminal_write_times.pop(target, None)
         self.prompts.pop(target, None)
         self.semantic.pop(target, None)
 
@@ -262,6 +290,7 @@ class IndicatorDaemon:
                 return 0 if available else 1
             time.sleep(self.loop_interval)
         return 0
+
 
 
 def check_dependencies() -> int:
@@ -277,17 +306,102 @@ def check_dependencies() -> int:
     return 0 if systemd_ok else 1
 
 
-def entrypoint(argv: list[str] | None = None) -> int:
+def run_script(path: Path) -> int:
+    if not path.is_file():
+        print(f"Required script not found: {path}", file=sys.stderr)
+        return 1
+    os.execv(str(path), [str(path)])
+    return 1
+
+
+def print_completion(shell: str) -> int:
+    commands = "update version uninstall help config"
+    if shell == "bash":
+        print(
+            "_tmuxcue() {\n"
+            "  local cur prev\n"
+            "  COMPREPLY=()\n"
+            "  cur=\"${COMP_WORDS[COMP_CWORD]}\"\n"
+            "  prev=\"${COMP_WORDS[COMP_CWORD-1]}\"\n"
+            f"  if [[ ${{COMP_CWORD}} -eq 1 ]]; then COMPREPLY=( $(compgen -W \"{commands}\" -- \"$cur\") ); fi\n"
+            "  if [[ $prev == config ]]; then COMPREPLY=( $(compgen -W \"terminal-title\" -- \"$cur\") ); fi\n"
+            "  if [[ ${COMP_WORDS[1]} == config && $prev == terminal-title ]]; then COMPREPLY=( $(compgen -W \"override native\" -- \"$cur\") ); fi\n"
+            "}\ncomplete -F _tmuxcue tmuxcue"
+        )
+    elif shell == "zsh":
+        print(
+            "#compdef tmuxcue\n"
+            "_arguments '1:command:(update version uninstall help config)' "
+            "'2:option:(terminal-title)' '3:mode:(override native)'"
+        )
+    elif shell == "fish":
+        for command in commands.split():
+            print(f"complete -c tmuxcue -f -n '__fish_use_subcommand' -a {command}")
+        print("complete -c tmuxcue -f -n '__fish_seen_subcommand_from config' -a terminal-title")
+        print("complete -c tmuxcue -f -n '__fish_seen_subcommand_from terminal-title' -a 'override native'")
+    return 0
+
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Safe status titles for Codex and Claude terminals"
+        prog="tmuxcue",
+        description="Safe status titles for Codex and Claude terminals",
     )
-    parser.add_argument("--once", action="store_true", help="update titles once and exit")
-    parser.add_argument("--check", action="store_true", help="check runtime dependencies")
-    parser.add_argument("--version", action="version", version=f"TmuxCue {__version__}")
-    args = parser.parse_args(argv)
-    if args.check:
+    subcommands = parser.add_subparsers(dest="command")
+    subcommands.add_parser("update", help="update TmuxCue from its Git clone")
+    subcommands.add_parser("version", help="print the installed version")
+    subcommands.add_parser("uninstall", help="remove TmuxCue safely")
+    subcommands.add_parser("help", help="show this help message")
+
+    config = subcommands.add_parser("config", help="change TmuxCue options")
+    config_subcommands = config.add_subparsers(dest="config_command")
+    terminal_title = config_subcommands.add_parser(
+        "terminal-title", help="choose whether TmuxCue overrides native terminal titles"
+    )
+    terminal_title.add_argument("mode", choices=("override", "native"))
+    return parser
+
+
+def entrypoint(argv: list[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "__service":
+        once = len(arguments) > 1 and arguments[1] == "--once"
+        return IndicatorDaemon().run(once=once)
+    if arguments and arguments[0] == "__check":
         return check_dependencies()
-    return IndicatorDaemon().run(once=args.once)
+    if len(arguments) == 2 and arguments[0] == "__completion":
+        return print_completion(arguments[1])
+
+    parser = build_parser()
+    args = parser.parse_args(arguments)
+    if args.command in {None, "help"}:
+        parser.print_help()
+        return 0
+    if args.command == "version":
+        print(f"TmuxCue {__version__}")
+        return 0
+    if args.command == "config":
+        if args.config_command != "terminal-title":
+            config_parser = build_parser()
+            config_parser.parse_args(["config", "--help"])
+            return 1
+        apply_title_mode(args.mode)
+        print(f"terminal-title: {args.mode}")
+        if args.mode == "override":
+            print("Native title generation is disabled for newly started Codex and Claude sessions.")
+        return 0
+    if args.command == "update":
+        source = source_dir()
+        if not source:
+            print("TmuxCue source directory is not configured.", file=sys.stderr)
+            return 1
+        return run_script(source / "update.sh")
+    if args.command == "uninstall":
+        current = Path.home() / ".local/share/tmuxcue/current/scripts/uninstall.sh"
+        return run_script(current)
+    parser.print_help()
+    return 1
 
 
 if __name__ == "__main__":

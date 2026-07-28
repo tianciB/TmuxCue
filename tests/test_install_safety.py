@@ -37,6 +37,12 @@ class InstallSafetyTests(unittest.TestCase):
         self.assertIn("AI_AFTER", scripts[0])
         self.assertIn("git pull --ff-only", scripts[1])
         self.assertIn("Refusing to update a dirty worktree", scripts[1])
+        self.assertIn('"$HOME/.local/bin/tmuxcue" version', scripts[1])
+        self.assertNotIn('"$HOME/.local/bin/tmuxcue" --version', scripts[1])
+        self.assertIn("__service", scripts[0])
+        self.assertIn("bash-completion", scripts[0])
+        self.assertIn("site-functions", scripts[0])
+        self.assertIn("fish/completions", scripts[0])
 
     def test_codex_hook_template_and_readme_match_minimum_trust_set(self):
         template = json.loads((ROOT / "hooks/codex-hooks.json.in").read_text())
@@ -55,7 +61,7 @@ class InstallSafetyTests(unittest.TestCase):
         self.assertIn("Installed 1", readme)
         self.assertIn("git clone https://github.com/tianciB/TmuxCue.git", readme)
         self.assertIn("cd TmuxCue", readme)
-        self.assertIn("./update.sh", readme)
+        self.assertIn("tmuxcue update", readme)
         self.assertIn("regular terminal", readme)
 
     def test_systemd_unit_has_basic_hardening(self):

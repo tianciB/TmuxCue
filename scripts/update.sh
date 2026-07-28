@@ -45,4 +45,4 @@ AI_AFTER="$(ps -eo uid=,pid=,comm= | awk -v uid="$(id -u)" '$1 == uid && ($3 == 
         exit 1
     }
 
-echo "TmuxCue updated to $("$HOME/.local/bin/tmuxcue" --version)."
+echo "TmuxCue updated to $("$HOME/.local/bin/tmuxcue" version)."
