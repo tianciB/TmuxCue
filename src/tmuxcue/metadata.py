@@ -9,9 +9,11 @@ import subprocess
 import time
 from typing import Callable
 
-from .core import Metadata, PaneRow, clean_text, is_generic_input, shorten
+from .core import Metadata, PaneRow, TerminalRow, clean_text, is_generic_input, shorten
 
 UUID_RE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b", re.I)
+ProcessInfo = tuple[int, int, str]
+AgentRow = PaneRow | TerminalRow
 
 
 def default_command(args: tuple[str, ...], timeout: float = 5) -> str:
@@ -43,26 +45,19 @@ class MetadataResolver:
     def run(self, *args: str, timeout: float = 5) -> str:
         return self.command(tuple(args), timeout)
 
-    def pane_path(self, pane: str, fallback: str) -> str:
-        return self.run("tmux", "display-message", "-p", "-t", pane, "#{pane_current_path}") or fallback
-
-    def foreground_process(self, pane: str, command_name: str) -> tuple[int, int, str] | None:
+    def foreground_process(self, pane: str, names: set[str]) -> ProcessInfo | None:
         tty = self.run("tmux", "display-message", "-p", "-t", pane, "#{pane_tty}")
         if not tty:
             return None
         output = self.run("ps", "-t", tty, "-o", "pid=,stat=,etimes=,comm=")
-        choices: list[tuple[tuple[int, int], int, int, str]] = []
+        choices: list[tuple[tuple[int, int], ProcessInfo]] = []
         for line in output.splitlines():
             fields = line.split(None, 3)
-            if len(fields) != 4 or fields[3] != command_name:
+            if len(fields) != 4 or fields[3] not in names or "T" in fields[1]:
                 continue
             try:
-                pid = int(fields[0])
-                elapsed = int(fields[2])
+                pid, elapsed = int(fields[0]), int(fields[2])
             except ValueError:
-                continue
-            process_state = fields[1]
-            if "T" in process_state:
                 continue
             try:
                 cmdline = (
@@ -73,22 +68,31 @@ class MetadataResolver:
                     .strip()
                 )
             except OSError:
-                cmdline = command_name
-            score = (1 if "+" in process_state else 0, pid)
-            choices.append((score, pid, int(time.time()) - elapsed, cmdline))
-        if not choices:
-            return None
-        _score, pid, started_at, cmdline = max(choices)
-        return pid, started_at, cmdline
+                cmdline = fields[3]
+            score = (1 if "+" in fields[1] else 0, pid)
+            choices.append((score, (pid, int(time.time()) - elapsed, cmdline)))
+        return max(choices, default=((), None))[1]
 
-    def resolve(self, row: PaneRow) -> Metadata:
-        cwd = self.pane_path(row.pane, row.cwd_hint)
+    def resolve(self, row: AgentRow) -> Metadata:
+        if isinstance(row, PaneRow):
+            cwd = self.run(
+                "tmux", "display-message", "-p", "-t", row.pane, "#{pane_current_path}"
+            ) or row.cwd_hint
+            names = {"codex"} if row.agent == "codex" else {"claude", "claude-code"}
+            process = self.foreground_process(row.pane, names)
+        else:
+            cwd = row.cwd_hint
+            process = (row.pid, row.started_at, row.cmdline)
+
         if row.agent == "codex":
-            model, topic, session_id = self.codex_metadata(row.pane, cwd)
+            model, topic, session_id = self.codex_metadata(cwd, process)
         elif row.agent == "claude":
-            model, topic, session_id = self.claude_metadata(row.pane, cwd)
+            model, topic, session_id = self.claude_metadata(
+                cwd, process[0] if process else None
+            )
         else:
             model, topic, session_id = "", row.subject, ""
+
         topic = shorten(topic or row.subject or Path(cwd).name, self.topic_width)
         return Metadata(row.agent, model, topic, session_id)
 
@@ -100,18 +104,16 @@ class MetadataResolver:
         )
         return databases[0] if databases else None
 
-    def codex_metadata(self, pane: str, cwd: str) -> tuple[str, str, str]:
+    def codex_metadata(
+        self, cwd: str, process: ProcessInfo | None
+    ) -> tuple[str, str, str]:
         database = self.codex_database()
         if database is None:
             return "", "", ""
 
-        process = self.foreground_process(pane, "codex")
         started_ms = process[1] * 1000 if process else int(time.time() * 1000)
-        resumed_id = ""
-        if process:
-            match = UUID_RE.search(process[2])
-            if match:
-                resumed_id = match.group(0)
+        match = UUID_RE.search(process[2]) if process else None
+        resumed_id = match.group(0) if match else ""
 
         try:
             connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
@@ -141,8 +143,7 @@ class MetadataResolver:
             thread = exact
         else:
             nearby = [
-                row
-                for row in rows
+                row for row in rows
                 if abs((row["created_at_ms"] or 0) - started_ms) <= 180_000
             ]
             if nearby:
@@ -152,8 +153,7 @@ class MetadataResolver:
                 )
             else:
                 eligible = [
-                    row
-                    for row in rows
+                    row for row in rows
                     if (row["created_at_ms"] or 0) <= started_ms + 120_000
                 ]
                 thread = max(eligible or rows, key=lambda row: row["updated_at_ms"] or 0)
@@ -164,6 +164,76 @@ class MetadataResolver:
         if not topic:
             topic = thread["title"] or ""
         return thread["model"] or "", topic, thread["id"]
+
+    def runtime_state(self, metadata: Metadata) -> str | None:
+        if not metadata.session_id:
+            return None
+        if metadata.agent == "codex":
+            return self.codex_runtime_state(metadata.session_id)
+        if metadata.agent == "claude":
+            return self.claude_runtime_state(metadata.session_id)
+        return None
+
+    def codex_runtime_state(self, session_id: str) -> str | None:
+        database = self.codex_database()
+        if database is None:
+            return None
+        try:
+            connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+            row = connection.execute(
+                "select rollout_path from threads where id=?", (session_id,)
+            ).fetchone()
+        except sqlite3.Error:
+            return None
+        finally:
+            try:
+                connection.close()
+            except (UnboundLocalError, sqlite3.Error):
+                pass
+        if not row or not row[0]:
+            return None
+
+        path = Path(row[0])
+        try:
+            with path.open("rb") as stream:
+                size = stream.seek(0, os.SEEK_END)
+                stream.seek(max(0, size - 524_288))
+                data = stream.read().decode("utf-8", "replace")
+        except OSError:
+            return None
+
+        state = None
+        for line in data.splitlines():
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if item.get("type") != "event_msg":
+                continue
+            event = (item.get("payload") or {}).get("type")
+            if event == "task_started":
+                state = "working"
+            elif event == "task_complete":
+                state = "idle"
+        return state
+
+    def claude_runtime_state(self, session_id: str) -> str | None:
+        sessions_dir = self.claude_home / "sessions"
+        if not sessions_dir.exists():
+            return None
+        for path in sessions_dir.glob("*.json"):
+            try:
+                item = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if item.get("sessionId") != session_id:
+                continue
+            status = item.get("status")
+            if status == "busy":
+                return "working"
+            if status:
+                return "idle"
+        return None
 
     def latest_codex_input(self, session_id: str) -> str:
         history = self.codex_home / "history.jsonl"
@@ -186,9 +256,7 @@ class MetadataResolver:
             return ""
         return topic
 
-    def claude_metadata(self, pane: str, cwd: str) -> tuple[str, str, str]:
-        process = self.foreground_process(pane, "claude")
-        pid = process[0] if process else None
+    def claude_metadata(self, cwd: str, pid: int | None) -> tuple[str, str, str]:
         session = None
         sessions_dir = self.claude_home / "sessions"
         if sessions_dir.exists():
@@ -213,8 +281,7 @@ class MetadataResolver:
             topic = session["name"]
         if not topic:
             topic = self.latest_claude_input(session_id)
-        model = self.claude_model(session_id)
-        return model, topic, session_id
+        return self.claude_model(session_id), topic, session_id
 
     def latest_claude_input(self, session_id: str) -> str:
         history = self.claude_home / "history.jsonl"
@@ -237,7 +304,11 @@ class MetadataResolver:
                         if isinstance(value, dict) and value.get("content")
                     ]
                     candidate = " ".join(pieces) if pieces else item.get("display", "")
-                    if candidate and not candidate.startswith("[Pasted text #") and not is_generic_input(candidate):
+                    if (
+                        candidate
+                        and not candidate.startswith("[Pasted text #")
+                        and not is_generic_input(candidate)
+                    ):
                         topic = candidate
         except OSError:
             return ""

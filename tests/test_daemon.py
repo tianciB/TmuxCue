@@ -8,7 +8,7 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from tmuxcue.core import Metadata
+from tmuxcue.core import Metadata, TerminalRow
 from tmuxcue.service import IndicatorDaemon
 
 
@@ -34,6 +34,39 @@ class DaemonTests(unittest.TestCase):
                     affected = daemon.poll_prompt_events(time.time())
                 self.assertEqual(affected, {"codex:0"})
                 self.assertIn("codex:0", daemon.prompts)
+
+    def test_terminal_hook_state_is_resolved_without_process_control(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(os.environ, {"CODEX_HOME": directory}):
+                daemon = IndicatorDaemon()
+                row = TerminalRow(
+                    pid=123,
+                    tty="/dev/pts/9",
+                    agent="codex",
+                    state="idle",
+                    cwd_hint="/tmp",
+                    started_at=1,
+                    cmdline="codex",
+                )
+                now = time.time()
+                running = {"state": "running", "timestamp": now - 30}
+                daemon.runtime_states["terminal:123"] = None
+                self.assertEqual(
+                    daemon.resolve_state(row, "idle", None, running, now),
+                    "running",
+                )
+                self.assertEqual(
+                    daemon.resolve_state(
+                        row, "idle", None, {"state": "done", "timestamp": now}, now
+                    ),
+                    "done",
+                )
+                self.assertEqual(
+                    daemon.resolve_state(
+                        row, "idle", None, {"state": "approval", "timestamp": now}, now
+                    ),
+                    "approval",
+                )
 
     def test_tmux_snippet_never_executes_shell_commands(self):
         snippet = (

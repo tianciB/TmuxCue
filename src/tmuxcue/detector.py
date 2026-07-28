@@ -45,6 +45,7 @@ class TmuxDetector:
     ):
         self.command = command
         self.capture_lines = capture_lines
+        self.pane_ttys: set[str] = set()
 
     def run(self, *args: str, timeout: float = 5) -> str:
         return self.command(tuple(args), timeout)
@@ -62,11 +63,14 @@ class TmuxDetector:
         )
         output = self.run("tmux", "list-panes", "-a", "-F", format_string)
         selected: dict[str, PaneRow] = {}
+        self.pane_ttys = set()
         for line in output.splitlines():
             fields = line.split("\t", 5)
             if len(fields) != 6:
                 continue
             pane, location, current_command, cwd, title, tty = fields
+            if tty:
+                self.pane_ttys.add(tty)
             agent = self.identify_agent(current_command, tty)
             if not agent:
                 continue

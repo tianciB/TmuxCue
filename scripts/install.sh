@@ -43,6 +43,7 @@ trap rollback EXIT
 # Installation must never create, kill, attach, rename, or send keys to a pane.
 TMUX_PID_BEFORE="$(pgrep -o -u "$(id -u)" tmux || true)"
 PANES_BEFORE="$(tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}:#{pane_pid}' 2>/dev/null | sort || true)"
+AI_BEFORE="$(ps -eo uid=,pid=,comm= | awk -v uid="$(id -u)" '$1 == uid && ($3 == "codex" || $3 == "claude" || $3 == "claude-code") { print $2 ":" $3 }' | sort)"
 
 PYTHONPATH="$ROOT/src" python3 -m tmuxcue --check
 PYTHONPATH="$ROOT/src" python3 -m unittest discover -s "$ROOT/tests" -q
@@ -99,8 +100,11 @@ fi
 
 TMUX_PID_AFTER="$(pgrep -o -u "$(id -u)" tmux || true)"
 PANES_AFTER="$(tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}:#{pane_pid}' 2>/dev/null | sort || true)"
-[ "$TMUX_PID_BEFORE" = "$TMUX_PID_AFTER" ] && [ "$PANES_BEFORE" = "$PANES_AFTER" ] || {
-    echo "Safety check failed: tmux process or panes changed during installation." >&2
+AI_AFTER="$(ps -eo uid=,pid=,comm= | awk -v uid="$(id -u)" '$1 == uid && ($3 == "codex" || $3 == "claude" || $3 == "claude-code") { print $2 ":" $3 }' | sort)"
+[ "$TMUX_PID_BEFORE" = "$TMUX_PID_AFTER" ] \
+    && [ "$PANES_BEFORE" = "$PANES_AFTER" ] \
+    && [ "$AI_BEFORE" = "$AI_AFTER" ] || {
+    echo "Safety check failed: a running terminal process changed during installation." >&2
     exit 1
 }
 

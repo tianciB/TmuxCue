@@ -1,6 +1,6 @@
 # TmuxCue
 
-TmuxCue shows the live status, model, and topic of Codex and Claude sessions in native tmux and VS Code terminal tabs.
+TmuxCue shows the live status, model, and topic of Codex and Claude sessions in tmux windows and regular terminal tabs.
 
 ## Status indicators
 
@@ -17,6 +17,15 @@ Example titles:
 ✅ claude/claude-opus-5: Research image generation milestones...
 ```
 
+For VS Code terminal tabs, use:
+
+```json
+{
+  "terminal.integrated.tabs.title": "${sequence}",
+  "terminal.integrated.tabs.description": ""
+}
+```
+
 ## Install
 
 ```bash
@@ -24,6 +33,14 @@ git clone https://github.com/tianciB/TmuxCue.git
 cd TmuxCue
 ./install.sh
 ```
+
+## Update
+
+```bash
+./update.sh
+```
+
+The updater requires a clean Git worktree, uses `git pull --ff-only`, and runs the same safety checks as installation.
 
 ## Review Codex hooks
 
@@ -52,18 +69,22 @@ The hooks only record the agent, session ID, state, event name, and timestamp. T
 ./uninstall.sh
 ```
 
-Uninstalling removes only TmuxCue services, hooks, display options, and installed files. It does not close or restart any tmux pane.
+Uninstalling removes only TmuxCue services, hooks, display options, and installed files. It does not close or restart any tmux pane or terminal AI process.
 
 ## Security
 
 - Refuses installation as `root` and never requires `sudo`.
 - Backs up tmux, Codex, and Claude configuration before editing.
-- Never runs `kill-session`, `kill-window`, `send-keys`, `attach`, or `respawn`.
-- Does not reload the complete tmux configuration during installation.
-- Verifies that the tmux server PID and every pane PID remain unchanged.
+- Never runs `kill-session`, `kill-window`, `send-keys`, `attach`, `respawn`, or sends signals to AI processes.
+- Verifies that the tmux server, every tmux pane PID, and every direct-terminal AI PID remain unchanged.
 - Uses no `#(...)` shell commands in tmux title formats.
+- Writes only a sanitized OSC title sequence to a foreground TTY owned by the current user.
+- Verifies `/proc/<pid>/fd/0` still points to that TTY before every title write.
+- Excludes every TTY owned by a tmux pane from direct-terminal updates.
 - Stores hook events with `0600` permissions.
 - Runs the user service with `NoNewPrivileges` and `UMask=0077`.
+
+Set `TMUXCUE_TERMINAL_TITLES=0` in the user service environment to disable regular-terminal title updates while keeping tmux integration enabled.
 
 ## License
 

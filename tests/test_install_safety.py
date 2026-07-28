@@ -14,6 +14,7 @@ class InstallSafetyTests(unittest.TestCase):
     def test_install_and_uninstall_never_control_panes(self):
         scripts = [
             (ROOT / "scripts/install.sh").read_text(encoding="utf-8"),
+            (ROOT / "scripts/update.sh").read_text(encoding="utf-8"),
             (ROOT / "scripts/uninstall.sh").read_text(encoding="utf-8"),
         ]
         for script in scripts:
@@ -32,6 +33,10 @@ class InstallSafetyTests(unittest.TestCase):
                 self.assertNotIn(forbidden, commands)
         self.assertIn("PANES_BEFORE", scripts[0])
         self.assertIn("PANES_AFTER", scripts[0])
+        self.assertIn("AI_BEFORE", scripts[0])
+        self.assertIn("AI_AFTER", scripts[0])
+        self.assertIn("git pull --ff-only", scripts[1])
+        self.assertIn("Refusing to update a dirty worktree", scripts[1])
 
     def test_codex_hook_template_and_readme_match_minimum_trust_set(self):
         template = json.loads((ROOT / "hooks/codex-hooks.json.in").read_text())
@@ -50,6 +55,8 @@ class InstallSafetyTests(unittest.TestCase):
         self.assertIn("Installed 1", readme)
         self.assertIn("git clone https://github.com/tianciB/TmuxCue.git", readme)
         self.assertIn("cd TmuxCue", readme)
+        self.assertIn("./update.sh", readme)
+        self.assertIn("regular terminal", readme)
 
     def test_systemd_unit_has_basic_hardening(self):
         unit = (ROOT / "systemd/tmuxcue.service").read_text(encoding="utf-8")

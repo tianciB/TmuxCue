@@ -2,51 +2,56 @@
 
 ```text
 Codex / Claude lifecycle hooks ─┐
-Codex / Claude local metadata  ─┼─> one external Python service
-native tmux pane detector      ─┘              │
-                                               ├─ @agent_state
-                                               ├─ @agent_icon
-                                               └─ @agent_title
-                                                        │
-                                                 pure tmux formats
+Codex / Claude local metadata  ─┼─> one user-level Python service
+native tmux pane detector      ─┤              │
+foreground terminal detector  ─┘              ├─ tmux window options
+                                               └─ sanitized OSC terminal title
 ```
 
-## Independent detector
+## Detection
 
-The repository implements its own detector using only native operating-system
-and tmux interfaces:
+TmuxCue uses native operating-system and tmux interfaces only:
 
-- `tmux list-panes` for pane identity, process, cwd, title, and tty;
-- process inspection for Codex and Claude foreground processes;
-- `tmux capture-pane` for a short, bounded screen tail;
-- lifecycle hooks for prompt submission, approvals, stop, and session events;
-- local Codex and Claude metadata for model and topic labels.
+- `tmux list-panes` for pane identity, process, cwd, title, and TTY;
+- process inspection for foreground Codex and Claude processes;
+- `tmux capture-pane` for a short, bounded tmux screen tail;
+- Codex and Claude lifecycle hooks for prompt, approval, and stop events;
+- local Codex and Claude metadata for model and topic labels;
+- read-only Codex transcript and Claude session state for direct terminals.
 
-No external Agent monitoring project or binary is required.
+Direct-terminal discovery excludes every TTY owned by a tmux pane.
 
-## Safety invariant
+## Output safety
 
-The tmux formats contain no shell interpolation and never use `#(...)`. The
-updater runs as one systemd user service outside tmux's redraw path. This avoids
-recursive tmux client creation and keeps title rendering independent from
-metadata or detector failures.
+Tmux formats contain no shell interpolation and never use `#(...)`. The updater
+runs outside tmux's redraw path and writes only window options.
+
+For a regular terminal, TmuxCue writes one sanitized OSC title sequence. Before
+every write it verifies that:
+
+- the target is a numeric `/dev/pts/*` character device;
+- the device and AI process belong to the current user;
+- `/proc/<pid>/fd/0` still points to the same TTY;
+- the opened file descriptor still matches the validated device.
+
+No input bytes, signals, attach commands, or process-control commands are sent.
 
 ## State model
 
-- `approval`: a lifecycle hook or terminal UI indicates an approval request.
-- `running`: a prompt was submitted or the pane title/screen indicates work.
-- `done`: the interactive agent is idle and waiting for the next prompt.
+- `approval`: a lifecycle hook or tmux UI indicates an approval request;
+- `running`: a prompt was submitted, a lifecycle event is active, or runtime
+  metadata indicates active work;
+- `done`: the interactive agent is waiting for the next prompt.
 
-Codex history is also tailed incrementally as a fallback. Prompt submission can
-therefore change the title within the daemon loop interval even before the TUI
-redraws.
+## Installation layout
 
-## Metadata model
+```text
+~/.local/share/tmuxcue/current
+~/.local/bin/tmuxcue
+~/.local/bin/tmuxcue-hook
+~/.local/bin/tmuxcue-service
+~/.config/systemd/user/tmuxcue.service
+```
 
-- Codex: exact thread ID from `codex resume UUID` when available, otherwise
-  cwd/start-time matching; model and optional name from `state_*.sqlite`; latest
-  substantive prompt from `history.jsonl`.
-- Claude: live session metadata, transcript model field, and latest human input
-  from `history.jsonl`.
-
-Generic acknowledgements and slash commands are skipped as title topics.
+Install and update scripts verify that the tmux server, all pane PIDs, and all
+direct-terminal Codex/Claude PIDs remain unchanged.
