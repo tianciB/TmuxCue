@@ -137,6 +137,17 @@ AI_AFTER="$(ps -eo uid=,pid=,comm= | awk -v uid="$(id -u)" '$1 == uid && ($3 == 
     exit 1
 }
 
+# Configure server-side VS Code Remote titles only after process safety checks pass.
+PYTHONPATH="$ROOT/src" python3 -m tmuxcue.vscode install
 COMMITTED=1
+
+# Re-emit each existing title. New tmux clients receive it automatically on attach.
+if tmux list-sessions >/dev/null 2>&1; then
+    while IFS= read -r window; do
+        title="$(tmux show-option -w -v -t "$window" @agent_title 2>/dev/null || true)"
+        [ -z "$title" ] || tmux set-option -w -t "$window" @agent_title "$title" >/dev/null 2>&1 || true
+    done < <(tmux list-windows -a -F '#{session_name}:#{window_index}')
+fi
+
 echo "TmuxCue installed. Existing tmux and terminal AI processes were left untouched."
 echo "Codex users: run /hooks once to review and trust the hooks."

@@ -19,7 +19,9 @@ Example titles:
 
 `[tmux]` identifies a tmux window. `[term]` identifies a regular terminal when terminal-title override mode is enabled.
 
-For VS Code terminal tabs, use:
+## VS Code Remote
+
+TmuxCue automatically configures the server-side VS Code Remote title template:
 
 ```json
 {
@@ -27,6 +29,8 @@ For VS Code terminal tabs, use:
   "terminal.integrated.tabs.description": ""
 }
 ```
+
+The setting is stored on the server, so a new VS Code Remote SSH connection from another computer loads TmuxCue titles without per-client setup or a manual refresh. Existing Remote settings are merged and backed up; uninstall restores the previous values when they are still managed by TmuxCue.
 
 ## Install
 
@@ -84,12 +88,12 @@ Before trusting them, verify that:
 
 The hooks only record the agent, session ID, state, event name, and timestamp. They do not approve permissions, execute requested tools, or store prompt content.
 
-Uninstalling with `tmuxcue uninstall` removes only TmuxCue services, hooks, display options, and installed files. It restores the previous native terminal-title settings and does not close or restart any tmux pane or terminal AI process.
+Uninstalling with `tmuxcue uninstall` removes only TmuxCue services, hooks, display options, and installed files. It restores the previous native terminal-title and VS Code Remote settings and does not close or restart any tmux pane or terminal AI process.
 
 ## Security
 
 - Refuses installation as `root` and never requires `sudo`.
-- Backs up tmux, Codex, and Claude configuration before editing.
+- Backs up tmux, Codex, Claude, and existing VS Code Remote configuration before editing.
 - Never runs `kill-session`, `kill-window`, `send-keys`, `attach`, `respawn`, or sends signals to AI processes.
 - Verifies that the tmux server, every tmux pane PID, and every direct-terminal AI PID remain unchanged.
 - Uses no `#(...)` shell commands in tmux title formats.

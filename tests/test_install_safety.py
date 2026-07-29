@@ -43,6 +43,8 @@ class InstallSafetyTests(unittest.TestCase):
         self.assertIn("bash-completion", scripts[0])
         self.assertIn("site-functions", scripts[0])
         self.assertIn("fish/completions", scripts[0])
+        self.assertIn("tmuxcue.vscode install", scripts[0])
+        self.assertIn("tmuxcue.vscode uninstall", scripts[2])
 
     def test_codex_hook_template_and_readme_match_minimum_trust_set(self):
         template = json.loads((ROOT / "hooks/codex-hooks.json.in").read_text())
@@ -63,6 +65,8 @@ class InstallSafetyTests(unittest.TestCase):
         self.assertIn("cd TmuxCue", readme)
         self.assertIn("tmuxcue update", readme)
         self.assertIn("regular terminal", readme)
+        self.assertIn("server-side VS Code Remote", readme)
+        self.assertIn("without per-client setup or a manual refresh", readme)
 
     def test_systemd_unit_has_basic_hardening(self):
         unit = (ROOT / "systemd/tmuxcue.service").read_text(encoding="utf-8")

@@ -12,6 +12,7 @@ TMUX_PID_BEFORE="$(pgrep -o -u "$(id -u)" tmux || true)"
 PANES_BEFORE="$(tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}:#{pane_pid}' 2>/dev/null | sort || true)"
 AI_BEFORE="$(ps -eo uid=,pid=,comm= | awk -v uid="$(id -u)" '$1 == uid && ($3 == "codex" || $3 == "claude" || $3 == "claude-code") { print $2 ":" $3 }' | sort)"
 
+PYTHONPATH="$ROOT/src" python3 -m tmuxcue.vscode uninstall
 PYTHONPATH="$ROOT/src" python3 -c 'from tmuxcue.settings import apply_title_mode; apply_title_mode("native")'
 systemctl --user disable --now tmuxcue.service >/dev/null 2>&1 || true
 rm -f "$SERVICE" "$BIN_DIR/tmuxcue" "$BIN_DIR/tmuxcue-hook" "$BIN_DIR/tmuxcue-service"
