@@ -11,8 +11,8 @@ import time
 from . import __version__
 from .core import JsonlTail, Metadata, PaneRow, TerminalRow, icon_for, visual_state
 from .detector import TmuxDetector
-from .events import load_events
-from .metadata import AgentRow, MetadataResolver, default_command
+from .events import EventReader
+from .metadata import AgentRow, MetadataResolver, ProcessSnapshot, default_command
 from .settings import apply_title_mode, source_dir, title_mode, title_override_since
 from .terminal import TerminalDetector, TerminalTitleWriter
 
@@ -37,29 +37,69 @@ class TmuxClient:
         output = self.command("list-windows", "-a", "-F", "#{session_name}:#{window_index}")
         return {line for line in output.splitlines() if line}
 
-    def set_values(self, target: str, state: str, icon: str, title: str) -> None:
-        subprocess.run(
-            (
-                "tmux",
-                "set-option", "-w", "-t", target, "@agent_state", state,
-                ";", "set-option", "-w", "-t", target, "@agent_icon", icon,
-                ";", "set-option", "-w", "-t", target, "@agent_title", title,
-            ),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-            check=False,
+    def managed_windows(self) -> set[str]:
+        output = self.command(
+            "list-windows",
+            "-a",
+            "-F",
+            "#{session_name}:#{window_index}\t#{@agent_state}\t#{@agent_icon}\t#{@agent_title}",
         )
+        managed: set[str] = set()
+        for line in output.splitlines():
+            fields = line.split("\t", 3)
+            if len(fields) == 4 and any(fields[1:]):
+                managed.add(fields[0])
+        return managed
 
-    def clear(self, target: str) -> None:
-        for option in ("@agent_state", "@agent_icon", "@agent_title"):
-            subprocess.run(
-                ("tmux", "set-option", "-wu", "-t", target, option),
+    @staticmethod
+    def _append_command(arguments: list[str], command: tuple[str, ...]) -> None:
+        if arguments:
+            arguments.append(";")
+        arguments.extend(command)
+
+    @staticmethod
+    def _run(arguments: list[str], timeout: float = 5) -> bool:
+        if not arguments:
+            return True
+        try:
+            result = subprocess.run(
+                ("tmux", *arguments),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=5,
+                timeout=timeout,
                 check=False,
             )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return False
+        return result.returncode == 0
+
+    def set_many(self, updates: list[tuple[str, str, str, str]]) -> bool:
+        arguments: list[str] = []
+        for target, state, icon, title in updates:
+            for option, value in (
+                ("@agent_state", state),
+                ("@agent_icon", icon),
+                ("@agent_title", title),
+            ):
+                self._append_command(
+                    arguments, ("set-option", "-w", "-t", target, option, value)
+                )
+        return self._run(arguments)
+
+    def set_values(self, target: str, state: str, icon: str, title: str) -> bool:
+        return self.set_many([(target, state, icon, title)])
+
+    def clear_many(self, targets: list[str]) -> bool:
+        arguments: list[str] = []
+        for target in targets:
+            for option in ("@agent_state", "@agent_icon", "@agent_title"):
+                self._append_command(
+                    arguments, ("set-option", "-wqu", "-t", target, option)
+                )
+        return self._run(arguments)
+
+    def clear(self, target: str) -> bool:
+        return self.clear_many([target])
 
     def refresh(self) -> None:
         self.command("refresh-client", "-S")
@@ -67,16 +107,29 @@ class TmuxClient:
 
 class IndicatorDaemon:
     def __init__(self) -> None:
-        self.loop_interval = float(os.environ.get("TMUXCUE_LOOP_INTERVAL", "1"))
-        self.scan_interval = float(os.environ.get("TMUXCUE_SCAN_INTERVAL", "3"))
-        self.metadata_interval = float(os.environ.get("TMUXCUE_METADATA_INTERVAL", "10"))
-        self.runtime_interval = float(os.environ.get("TMUXCUE_RUNTIME_INTERVAL", "3"))
-        self.prompt_grace = float(os.environ.get("TMUXCUE_PROMPT_GRACE", "8"))
+        self.loop_interval = max(
+            0.05, float(os.environ.get("TMUXCUE_LOOP_INTERVAL", "1"))
+        )
+        self.scan_interval = max(
+            0.05, float(os.environ.get("TMUXCUE_SCAN_INTERVAL", "3"))
+        )
+        self.metadata_interval = max(
+            0.05, float(os.environ.get("TMUXCUE_METADATA_INTERVAL", "10"))
+        )
+        self.metadata_retry_interval = max(
+            0.05, float(os.environ.get("TMUXCUE_METADATA_RETRY_INTERVAL", "1"))
+        )
+        self.runtime_interval = max(
+            0.05, float(os.environ.get("TMUXCUE_RUNTIME_INTERVAL", "3"))
+        )
+        self.prompt_grace = max(
+            0.0, float(os.environ.get("TMUXCUE_PROMPT_GRACE", "8"))
+        )
         self.topic_width = int(os.environ.get("TMUXCUE_TOPIC_WIDTH", "38"))
         self.terminal_titles = title_mode() == "override"
         self.terminal_override_since = title_override_since()
-        self.terminal_refresh_interval = float(
-            os.environ.get("TMUXCUE_TERMINAL_REFRESH_INTERVAL", "5")
+        self.terminal_refresh_interval = max(
+            0.05, float(os.environ.get("TMUXCUE_TERMINAL_REFRESH_INTERVAL", "5"))
         )
 
         self.tmux = TmuxClient()
@@ -84,11 +137,14 @@ class IndicatorDaemon:
         self.terminal_detector = TerminalDetector()
         self.terminal_writer = TerminalTitleWriter()
         self.metadata_resolver = MetadataResolver(topic_width=self.topic_width)
+        self.event_reader = EventReader()
         codex_home = Path(os.environ.get("CODEX_HOME", HOME / ".codex"))
         self.history = JsonlTail(codex_home / "history.jsonl")
 
         self.rows: dict[str, AgentRow] = {}
+        self.row_identities: dict[str, tuple] = {}
         self.tmux_windows: set[str] = set()
+        self.managed_tmux_windows: set[str] = set()
         self.applied: dict[str, tuple[str, str, str]] = {}
         self.metadata: dict[str, Metadata] = {}
         self.metadata_times: dict[str, float] = {}
@@ -100,12 +156,31 @@ class IndicatorDaemon:
         self.semantic: dict[str, tuple[str, str]] = {}
         self.last_scan = 0.0
 
+    @staticmethod
+    def row_identity(row: AgentRow) -> tuple:
+        if isinstance(row, PaneRow):
+            return (
+                "tmux", row.pane, row.agent, row.cwd_hint, row.tty, row.pid, row.started_at
+            )
+        return ("terminal", row.pid, row.agent, row.started_at, row.tty)
+
+    @staticmethod
+    def metadata_source_key(row: AgentRow) -> tuple:
+        if isinstance(row, PaneRow):
+            return (
+                "tmux", row.pane, row.agent, row.cwd_hint, row.tty, row.pid, row.started_at
+            )
+        return ("terminal", row.pid, row.agent, row.started_at)
+
     def scan(self) -> None:
+        scan_started = time.time()
         self.terminal_titles = title_mode() == "override"
         self.terminal_override_since = title_override_since()
         tmux_rows = self.tmux_detector.scan()
         terminal_rows = (
-            self.terminal_detector.scan(self.tmux_detector.pane_ttys)
+            self.terminal_detector.scan(
+                self.tmux_detector.pane_ttys, self.tmux_detector.processes
+            )
             if self.terminal_titles
             else {}
         )
@@ -115,20 +190,67 @@ class IndicatorDaemon:
                 for target, row in terminal_rows.items()
                 if row.started_at >= self.terminal_override_since
             }
-        self.rows = {**tmux_rows, **terminal_rows}
+        rows = {**tmux_rows, **terminal_rows}
+        identities = {target: self.row_identity(row) for target, row in rows.items()}
+        for target, identity in identities.items():
+            previous = self.row_identities.get(target)
+            if previous is not None and previous != identity:
+                self.drop_target(target)
+        self.rows = rows
+        self.row_identities = identities
         self.tmux_windows = self.tmux.windows()
-        self.last_scan = time.time()
+        self.managed_tmux_windows = self.tmux.managed_windows()
+        self.last_scan = scan_started
 
-    def refresh_metadata(self, target: str, row: AgentRow, now: float) -> Metadata:
-        metadata = self.metadata_resolver.resolve(row)
+    def _store_metadata(
+        self, target: str, metadata: Metadata, now: float
+    ) -> Metadata:
         self.metadata[target] = metadata
         self.metadata_times[target] = now
-        if metadata.session_id and self.recent_prompt_events.get(metadata.session_id, 0) > now - 5:
+        if (
+            metadata.session_id
+            and self.recent_prompt_events.get(metadata.session_id, 0)
+            > now - max(5.0, self.prompt_grace)
+        ):
             self.prompts[target] = {
                 "at": self.recent_prompt_events[metadata.session_id],
                 "saw_working": False,
             }
         return metadata
+
+    def refresh_metadata(
+        self,
+        target: str,
+        row: AgentRow,
+        now: float,
+        processes: ProcessSnapshot | None = None,
+    ) -> Metadata:
+        return self._store_metadata(
+            target, self.metadata_resolver.resolve(row, processes=processes), now
+        )
+
+    def refresh_metadata_targets(self, targets: set[str], now: float) -> set[str]:
+        valid = [target for target in targets if target in self.rows]
+        processes = (
+            self.metadata_resolver.process_snapshot()
+            if any(
+                isinstance(self.rows[target], PaneRow) and not self.rows[target].pid
+                for target in valid
+            )
+            else None
+        )
+        resolved: dict[tuple, Metadata] = {}
+        refreshed: set[str] = set()
+        for target in valid:
+            row = self.rows[target]
+            key = self.metadata_source_key(row)
+            metadata = resolved.get(key)
+            if metadata is None:
+                metadata = self.metadata_resolver.resolve(row, processes=processes)
+                resolved[key] = metadata
+            self._store_metadata(target, metadata, now)
+            refreshed.add(target)
+        return refreshed
 
     def poll_prompt_events(self, now: float) -> set[str]:
         affected: set[str] = set()
@@ -137,18 +259,49 @@ class IndicatorDaemon:
             if not session_id or not text:
                 continue
             self.recent_prompt_events[session_id] = now
+            matched = False
             for target, metadata in self.metadata.items():
-                if metadata.session_id == session_id:
-                    self.prompts[target] = {"at": now, "saw_working": False}
-                    self.metadata_times[target] = 0.0
-                    affected.add(target)
-                    print(f"{target}: prompt submitted", flush=True)
+                if metadata.session_id != session_id:
+                    continue
+                self.prompts[target] = {"at": now, "saw_working": False}
+                self.metadata_times[target] = 0.0
+                affected.add(target)
+                matched = True
+            if not matched:
+                for target, row in self.rows.items():
+                    if row.agent == "codex":
+                        self.metadata_times[target] = 0.0
+                        affected.add(target)
+            print("codex: prompt submitted", flush=True)
         self.recent_prompt_events = {
             session_id: timestamp
             for session_id, timestamp in self.recent_prompt_events.items()
             if timestamp > now - 30
         }
         return affected
+
+    @staticmethod
+    def event_timestamp(event: dict | None) -> float:
+        try:
+            return float((event or {}).get("timestamp", 0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    def recent_unmatched_hook_targets(
+        self, hook_events: dict[tuple[str, str], dict], now: float
+    ) -> set[str]:
+        represented = {
+            (metadata.agent, metadata.session_id)
+            for metadata in self.metadata.values()
+            if metadata.session_id
+        }
+        agents = {
+            agent
+            for (agent, session_id), event in hook_events.items()
+            if (agent, session_id) not in represented
+            and self.event_timestamp(event) > now - max(5.0, self.prompt_grace)
+        }
+        return {target for target, row in self.rows.items() if row.agent in agents}
 
     def raw_state(self, target: str, row: AgentRow, metadata: Metadata, now: float) -> str:
         if isinstance(row, PaneRow):
@@ -157,6 +310,11 @@ class IndicatorDaemon:
             self.runtime_states[target] = self.metadata_resolver.runtime_state(metadata)
             self.runtime_times[target] = now
         return self.runtime_states.get(target) or row.state
+
+    def observation_time(self, row: AgentRow) -> float:
+        if isinstance(row, PaneRow):
+            return self.last_scan
+        return self.runtime_times.get(f"terminal:{row.pid}", self.last_scan)
 
     def resolve_state(
         self,
@@ -167,15 +325,32 @@ class IndicatorDaemon:
         now: float,
     ) -> str:
         state = visual_state(raw_state, prompt, now, self.prompt_grace)
+        hook_timestamp = self.event_timestamp(hook_event)
+        hook_state = (hook_event or {}).get("state")
+        prompt_timestamp = float((prompt or {}).get("at", 0))
+
+        event_state = "running" if prompt is not None else ""
+        event_timestamp = prompt_timestamp
+        if hook_event and hook_timestamp >= event_timestamp:
+            event_state = str(hook_state or "")
+            event_timestamp = hook_timestamp
+        if event_timestamp > self.observation_time(row):
+            if event_state == "approval":
+                return "approval"
+            if event_state == "running":
+                return "running"
+            if event_state == "done":
+                return "done"
+            if event_state == "ended":
+                return ""
+
+        if raw_state == "blocked":
+            return "approval"
         if not hook_event:
             return state
 
-        hook_state = hook_event.get("state")
-        hook_timestamp = float(hook_event.get("timestamp", 0))
-        hook_age = now - hook_timestamp
-        prompt_is_newer = prompt is not None and prompt.get("at", 0) > hook_timestamp
-        if raw_state == "blocked":
-            return "approval"
+        hook_age = max(0.0, now - hook_timestamp)
+        prompt_is_newer = prompt is not None and prompt_timestamp > hook_timestamp
         if prompt_is_newer:
             return state
         if hook_state == "approval":
@@ -202,33 +377,20 @@ class IndicatorDaemon:
         state, icon, title = values
         if isinstance(row, TerminalRow):
             return self.terminal_writer.write(row, title)
-        self.tmux.set_values(target, state, icon, title)
-        return True
+        return self.tmux.set_values(target, state, icon, title)
 
-    def update_once(self, *, force_metadata: bool = False) -> bool:
-        now = time.time()
-        if now - self.last_scan >= self.scan_interval:
-            self.scan()
-        if not self.rows:
-            self.applied.clear()
-            return False
-
-        for target, row in self.rows.items():
-            if (
-                force_metadata
-                or target not in self.metadata
-                or now - self.metadata_times.get(target, 0) >= self.metadata_interval
-            ):
-                self.refresh_metadata(target, row, now)
-
-        for target in self.poll_prompt_events(now):
+    def apply_targets(
+        self,
+        targets: set[str],
+        hook_events: dict[tuple[str, str], dict],
+        now: float,
+    ) -> bool:
+        tmux_updates: list[tuple[str, str, str, str]] = []
+        pending_values: dict[str, tuple[str, str, str]] = {}
+        for target in targets:
             row = self.rows.get(target)
-            if row is not None:
-                self.refresh_metadata(target, row, now)
-
-        hook_events = load_events()
-        tmux_changed = False
-        for target, row in self.rows.items():
+            if row is None:
+                continue
             metadata = self.metadata.get(target) or Metadata(row.agent, "", row.subject, "")
             prompt = self.prompts.get(target)
             raw_state = self.raw_state(target, row, metadata, now)
@@ -247,30 +409,116 @@ class IndicatorDaemon:
                 isinstance(row, TerminalRow)
                 and now - self.terminal_write_times.get(target, 0) >= self.terminal_refresh_interval
             )
-            if (self.applied.get(target) != values or terminal_refresh) and self.apply(target, row, values):
-                self.applied[target] = values
+            if self.applied.get(target) != values or terminal_refresh:
                 if isinstance(row, TerminalRow):
-                    self.terminal_write_times[target] = now
+                    if self.terminal_writer.write(row, title):
+                        self.applied[target] = values
+                        self.terminal_write_times[target] = now
                 else:
-                    tmux_changed = True
+                    tmux_updates.append((target, state, icon, title))
+                    pending_values[target] = values
 
             semantic_value = (state, metadata.label)
             if self.semantic.get(target) != semantic_value:
                 print(f"{target}: {title}", flush=True)
                 self.semantic[target] = semantic_value
 
-        for target in self.tmux_windows - set(self.rows):
-            if target in self.applied:
-                self.tmux.clear(target)
-                tmux_changed = True
+        if tmux_updates and self.tmux.set_many(tmux_updates):
+            for target, values in pending_values.items():
+                self.applied[target] = values
+                self.managed_tmux_windows.add(target)
+            return True
+        return False
+
+    def cleanup_missing_targets(self) -> bool:
+        active_tmux = {
+            target for target, row in self.rows.items() if isinstance(row, PaneRow)
+        }
+        tracked_tmux = self.managed_tmux_windows | {
+            target for target in self.applied if not target.startswith("terminal:")
+        }
+        stale_tmux = tracked_tmux - active_tmux
+        existing = stale_tmux & self.tmux_windows
+        missing = stale_tmux - self.tmux_windows
+        for target in missing:
+            self.managed_tmux_windows.discard(target)
             self.drop_target(target)
 
-        for target in list(self.applied):
-            if target not in self.rows:
+        pending = set(existing)
+        changed = False
+        if existing and self.tmux.clear_many(sorted(existing)):
+            changed = True
+            pending.clear()
+            for target in existing:
+                self.managed_tmux_windows.discard(target)
                 self.drop_target(target)
 
-        if tmux_changed:
+        known_targets = (
+            set(self.applied)
+            | set(self.metadata)
+            | set(self.row_identities)
+            | set(self.prompts)
+        )
+        for target in known_targets - set(self.rows):
+            if target not in pending:
+                self.drop_target(target)
+        return changed
+
+    def metadata_due_targets(self, force_metadata: bool) -> set[str]:
+        now = time.time()
+        represented_sessions = {
+            metadata.session_id for metadata in self.metadata.values() if metadata.session_id
+        }
+        unmatched_prompt = any(
+            session_id not in represented_sessions
+            and timestamp > now - max(5.0, self.prompt_grace)
+            for session_id, timestamp in self.recent_prompt_events.items()
+        )
+        due: set[str] = set()
+        for target, row in self.rows.items():
+            metadata = self.metadata.get(target)
+            interval = (
+                self.metadata_interval
+                if metadata is not None and metadata.session_id
+                else min(self.metadata_interval, self.metadata_retry_interval)
+            )
+            if (
+                force_metadata
+                or metadata is None
+                or (unmatched_prompt and row.agent == "codex")
+                or now - self.metadata_times.get(target, 0) >= interval
+            ):
+                due.add(target)
+        return due
+
+    def update_once(self, *, force_metadata: bool = False) -> bool:
+        now = time.time()
+        if now - self.last_scan >= self.scan_interval:
+            self.scan()
+            now = time.time()
+
+        if self.cleanup_missing_targets():
             self.tmux.refresh()
+        if not self.rows:
+            return False
+
+        prompt_targets = self.poll_prompt_events(now)
+        hook_events = self.event_reader.poll(now)
+
+        if self.apply_targets(set(self.rows), hook_events, now):
+            self.tmux.refresh()
+
+        metadata_targets = (
+            self.metadata_due_targets(force_metadata)
+            | prompt_targets
+            | self.recent_unmatched_hook_targets(hook_events, now)
+        )
+        refreshed = self.refresh_metadata_targets(metadata_targets, time.time())
+        if refreshed:
+            refreshed_at = time.time()
+            hook_events = self.event_reader.poll(refreshed_at)
+            if self.apply_targets(refreshed, hook_events, refreshed_at):
+                self.tmux.refresh()
         return True
 
     def drop_target(self, target: str) -> None:
@@ -282,15 +530,21 @@ class IndicatorDaemon:
         self.terminal_write_times.pop(target, None)
         self.prompts.pop(target, None)
         self.semantic.pop(target, None)
+        self.row_identities.pop(target, None)
 
     def run(self, once: bool = False) -> int:
+        next_tick = time.monotonic()
         while not STOP:
             available = self.update_once(force_metadata=once)
             if once:
                 return 0 if available else 1
-            time.sleep(self.loop_interval)
+            next_tick += self.loop_interval
+            delay = next_tick - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            else:
+                next_tick = time.monotonic()
         return 0
-
 
 
 def check_dependencies() -> int:

@@ -16,26 +16,19 @@ class TerminalDetectorTests(unittest.TestCase):
         uid = os.getuid()
         with tempfile.TemporaryDirectory() as directory:
             proc = Path(directory)
-            for pid, cwd, command in (
-                (101, "/tmp/codex", "codex\0resume\0"),
-                (102, "/tmp/claude", "claude\0"),
-            ):
+            for pid, cwd in ((101, "/tmp/codex"), (102, "/tmp/claude")):
                 process = proc / str(pid)
                 process.mkdir()
                 (process / "cwd").symlink_to(cwd)
-                (process / "cmdline").write_bytes(command.encode())
 
-            ps_output = "\n".join(
-                (
-                    f"{uid} 101 pts/1 Sl+ 12 codex",
-                    f"{uid} 102 pts/2 Sl+ 8 claude",
-                    f"{uid} 103 pts/3 Tl+ 20 codex",
-                )
-            )
+            processes = {
+                ("/dev/pts/1", "codex"): (101, 10, "codex resume"),
+                ("/dev/pts/2", "claude"): (102, 20, "claude"),
+            }
             detector = TerminalDetector(
-                command=lambda _args, _timeout=5: ps_output,
                 proc_root=proc,
                 uid=uid,
+                process_provider=lambda _root, _uid: processes,
             )
             rows = detector.scan({"/dev/pts/1"})
             self.assertEqual(set(rows), {"terminal:102"})

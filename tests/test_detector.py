@@ -7,6 +7,29 @@ class DetectorTests(unittest.TestCase):
     def setUp(self):
         self.detector = TmuxDetector(command=lambda _args, _timeout=5: "")
 
+    def test_scan_reuses_process_snapshot_for_wrapped_agent(self):
+        commands = []
+
+        def command(args, _timeout=5):
+            commands.append(args)
+            if args[:3] == ("tmux", "list-panes", "-a"):
+                return "%1\ts:0.0\tbash\t/tmp\t⠙ Codex\t/dev/pts/1"
+            if len(args) > 1 and args[1] == "capture-pane":
+                return ""
+            return ""
+
+        processes = {("/dev/pts/1", "codex"): (123, 100, "codex resume")}
+        detector = TmuxDetector(
+            command=command,
+            process_provider=lambda _root, _uid: processes,
+        )
+        rows = detector.scan()
+        self.assertEqual(set(rows), {"s:0"})
+        self.assertEqual(rows["s:0"].pid, 123)
+        self.assertEqual(rows["s:0"].agent, "codex")
+        self.assertEqual(rows["s:0"].state, "working")
+        self.assertFalse(any(args[0] == "ps" for args in commands))
+
     def test_braille_title_is_working(self):
         self.assertEqual(self.detector.detect_state("codex", "⠙ Codex", ""), "working")
 
@@ -17,6 +40,16 @@ class DetectorTests(unittest.TestCase):
     def test_claude_question_dialog_is_blocked(self):
         screen = "Enter to select · Esc to cancel"
         self.assertEqual(self.detector.detect_state("claude", "Claude Code", screen), "blocked")
+
+    def test_current_working_title_beats_old_approval_text(self):
+        screen = "Press Enter to confirm or Esc to cancel"
+        self.assertEqual(self.detector.detect_state("codex", "⠙ Codex", screen), "working")
+
+    def test_old_approval_text_outside_dialog_tail_is_ignored(self):
+        screen = "Press Enter to confirm or Esc to cancel\n" + "\n".join(
+            f"output {index}" for index in range(13)
+        )
+        self.assertEqual(self.detector.detect_state("codex", "Codex", screen), "idle")
 
     def test_plain_prompt_is_idle(self):
         self.assertEqual(self.detector.detect_state("codex", "repo", "› next prompt"), "idle")

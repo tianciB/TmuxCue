@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
 import re
-import subprocess
 from typing import Callable
 
 from .core import PaneRow, PRIORITY
-from .metadata import default_command
+from .metadata import ProcessSnapshot, default_command, discover_agent_processes
 
 BRAILLE_START = 0x2800
 BRAILLE_END = 0x28FF
@@ -42,9 +43,16 @@ class TmuxDetector:
         self,
         command: Callable[[tuple[str, ...], float], str] = default_command,
         capture_lines: int = 50,
+        proc_root: Path = Path("/proc"),
+        uid: int | None = None,
+        process_provider: Callable[[Path, int], ProcessSnapshot] = discover_agent_processes,
     ):
         self.command = command
         self.capture_lines = capture_lines
+        self.proc_root = Path(proc_root)
+        self.uid = os.getuid() if uid is None else uid
+        self.process_provider = process_provider
+        self.processes: ProcessSnapshot = {}
         self.pane_ttys: set[str] = set()
 
     def run(self, *args: str, timeout: float = 5) -> str:
@@ -62,6 +70,7 @@ class TmuxDetector:
             )
         )
         output = self.run("tmux", "list-panes", "-a", "-F", format_string)
+        self.processes = self.process_provider(self.proc_root, self.uid)
         selected: dict[str, PaneRow] = {}
         self.pane_ttys = set()
         for line in output.splitlines():
@@ -71,7 +80,7 @@ class TmuxDetector:
             pane, location, current_command, cwd, title, tty = fields
             if tty:
                 self.pane_ttys.add(tty)
-            agent = self.identify_agent(current_command, tty)
+            agent = self.identify_agent(current_command, tty, self.processes)
             if not agent:
                 continue
             screen = self.run(
@@ -87,32 +96,31 @@ class TmuxDetector:
             )
             state = self.detect_state(agent, title, screen)
             window = location.rsplit(".", 1)[0]
-            row = PaneRow(pane, window, agent, state, cwd, "")
+            process = self.processes.get((tty, agent))
+            pid, started_at, cmdline = process or (0, 0, "")
+            row = PaneRow(
+                pane, window, agent, state, cwd, "", tty, pid, started_at, cmdline
+            )
             previous = selected.get(window)
             if previous is None or PRIORITY.get(state, 0) > PRIORITY.get(previous.state, 0):
                 selected[window] = row
         return selected
 
-    def identify_agent(self, current_command: str, tty: str) -> str:
+    def identify_agent(
+        self, current_command: str, tty: str, processes: ProcessSnapshot | None = None
+    ) -> str:
         command = current_command.lower()
         if command in {"codex", "claude", "claude-code"}:
             return "claude" if command.startswith("claude") else "codex"
         if not tty:
             return ""
-        output = self.run("ps", "-t", tty, "-o", "stat=,comm=")
-        candidates = []
-        for line in output.splitlines():
-            fields = line.split(None, 1)
-            if len(fields) != 2 or "T" in fields[0]:
-                continue
-            process = fields[1].lower()
-            if process in {"codex", "claude", "claude-code"}:
-                score = 1 if "+" in fields[0] else 0
-                candidates.append((score, process))
-        if not candidates:
-            return ""
-        process = max(candidates)[1]
-        return "claude" if process.startswith("claude") else "codex"
+        processes = self.processes if processes is None else processes
+        candidates = [
+            (process[0], agent)
+            for (process_tty, agent), process in processes.items()
+            if process_tty == tty
+        ]
+        return max(candidates, default=(0, ""))[1]
 
     @staticmethod
     def title_is_working(title: str) -> bool:
@@ -126,13 +134,17 @@ class TmuxDetector:
     def detect_state(self, agent: str, title: str, screen: str) -> str:
         title_text = title or ""
         screen_tail = "\n".join((screen or "").splitlines()[-35:])
-        combined = f"{title_text}\n{screen_tail}"
 
         approval_patterns = (
             CODEX_APPROVAL_PATTERNS if agent == "codex" else CLAUDE_APPROVAL_PATTERNS
         )
-        if "action required" in title_text.lower() or self.matches_any(approval_patterns, combined):
+        if "action required" in title_text.lower():
             return "blocked"
-        if self.title_is_working(title_text) or self.matches_any(WORKING_PATTERNS, screen_tail):
+        if self.title_is_working(title_text):
+            return "working"
+        approval_tail = "\n".join((screen or "").splitlines()[-12:])
+        if self.matches_any(approval_patterns, approval_tail):
+            return "blocked"
+        if self.matches_any(WORKING_PATTERNS, screen_tail):
             return "working"
         return "idle"

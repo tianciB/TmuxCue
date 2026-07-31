@@ -13,7 +13,101 @@ from .core import Metadata, PaneRow, TerminalRow, clean_text, is_generic_input, 
 
 UUID_RE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b", re.I)
 ProcessInfo = tuple[int, int, str]
+ProcessSnapshot = dict[tuple[str, str], ProcessInfo]
 AgentRow = PaneRow | TerminalRow
+AGENT_PROCESS_NAMES = {"codex": "codex", "claude": "claude", "claude-code": "claude"}
+
+
+def _read_process_stat(path: Path) -> tuple[str, int, int, int] | None:
+    try:
+        text = path.read_text(encoding="utf-8")
+        closing = text.rfind(")")
+        if closing < 0:
+            return None
+        fields = text[closing + 2 :].split()
+        if len(fields) <= 19:
+            return None
+        return fields[0], int(fields[2]), int(fields[5]), int(fields[19])
+    except (OSError, ValueError):
+        return None
+
+
+def discover_agent_processes(
+    proc_root: Path = Path("/proc"),
+    uid: int | None = None,
+    now: float | None = None,
+) -> ProcessSnapshot:
+    """Find foreground Codex and Claude processes with one bounded /proc scan."""
+    proc_root = Path(proc_root)
+    uid = os.getuid() if uid is None else uid
+    now = time.time() if now is None else now
+    booted_at: float | None = None
+    try:
+        for line in (proc_root / "stat").read_text(encoding="utf-8").splitlines():
+            if line.startswith("btime "):
+                booted_at = float(line.split()[1])
+                break
+    except (OSError, ValueError, IndexError):
+        pass
+    if booted_at is None:
+        try:
+            uptime = float((proc_root / "uptime").read_text(encoding="utf-8").split()[0])
+            booted_at = now - uptime
+        except (OSError, ValueError, IndexError):
+            booted_at = now
+    try:
+        clock_ticks = int(os.sysconf("SC_CLK_TCK"))
+    except (OSError, ValueError):
+        clock_ticks = 100
+
+    selected: dict[tuple[str, str], tuple[int, ProcessInfo]] = {}
+    try:
+        process_dirs = proc_root.iterdir()
+    except OSError:
+        return {}
+    for process_dir in process_dirs:
+        if not process_dir.name.isdigit():
+            continue
+        try:
+            if process_dir.stat().st_uid != uid:
+                continue
+            process_name = (process_dir / "comm").read_text(encoding="utf-8").strip().lower()
+        except OSError:
+            continue
+        agent = AGENT_PROCESS_NAMES.get(process_name, "")
+        if not agent:
+            continue
+
+        process_stat = _read_process_stat(process_dir / "stat")
+        if process_stat is None:
+            continue
+        state, process_group, foreground_group, start_ticks = process_stat
+        if state in {"T", "t", "Z", "X"} or foreground_group <= 0 or process_group != foreground_group:
+            continue
+        try:
+            tty = os.readlink(process_dir / "fd/0").removesuffix(" (deleted)")
+        except OSError:
+            continue
+        if not tty.startswith("/dev/"):
+            continue
+        try:
+            cmdline = (
+                (process_dir / "cmdline")
+                .read_bytes()
+                .replace(b"\0", b" ")
+                .decode("utf-8", "replace")
+                .strip()
+            )
+        except OSError:
+            cmdline = process_name
+
+        pid = int(process_dir.name)
+        started_at = int(booted_at + (start_ticks / max(clock_ticks, 1)))
+        key = (tty, agent)
+        previous = selected.get(key)
+        if previous is None or pid > previous[0]:
+            selected[key] = (pid, (pid, started_at, cmdline or process_name))
+    return {key: value for key, (_pid, value) in selected.items()}
 
 
 def default_command(args: tuple[str, ...], timeout: float = 5) -> str:
@@ -24,7 +118,7 @@ def default_command(args: tuple[str, ...], timeout: float = 5) -> str:
             stderr=subprocess.DEVNULL,
             timeout=timeout,
         ).strip()
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
         return ""
 
 
@@ -35,51 +129,50 @@ class MetadataResolver:
         home: Path | None = None,
         topic_width: int = 38,
         command: Callable[[tuple[str, ...], float], str] = default_command,
+        proc_root: Path = Path("/proc"),
+        uid: int | None = None,
     ):
         self.home = Path(home or Path.home())
         self.codex_home = Path(os.environ.get("CODEX_HOME", self.home / ".codex"))
         self.claude_home = Path(os.environ.get("CLAUDE_HOME", self.home / ".claude"))
         self.topic_width = topic_width
         self.command = command
+        self.proc_root = Path(proc_root)
+        self.uid = os.getuid() if uid is None else uid
+        self._process_snapshot: ProcessSnapshot = {}
+        self._process_snapshot_at = 0.0
 
     def run(self, *args: str, timeout: float = 5) -> str:
         return self.command(tuple(args), timeout)
 
-    def foreground_process(self, pane: str, names: set[str]) -> ProcessInfo | None:
-        tty = self.run("tmux", "display-message", "-p", "-t", pane, "#{pane_tty}")
+    def process_snapshot(self, max_age: float = 1.0) -> ProcessSnapshot:
+        now = time.monotonic()
+        if now - self._process_snapshot_at >= max_age:
+            self._process_snapshot = discover_agent_processes(
+                self.proc_root, self.uid
+            )
+            self._process_snapshot_at = now
+        return self._process_snapshot
+
+    def foreground_process(self, pane: str, agent: str, tty: str = "") -> ProcessInfo | None:
+        tty = tty or self.run("tmux", "display-message", "-p", "-t", pane, "#{pane_tty}")
         if not tty:
             return None
-        output = self.run("ps", "-t", tty, "-o", "pid=,stat=,etimes=,comm=")
-        choices: list[tuple[tuple[int, int], ProcessInfo]] = []
-        for line in output.splitlines():
-            fields = line.split(None, 3)
-            if len(fields) != 4 or fields[3] not in names or "T" in fields[1]:
-                continue
-            try:
-                pid, elapsed = int(fields[0]), int(fields[2])
-            except ValueError:
-                continue
-            try:
-                cmdline = (
-                    Path(f"/proc/{pid}/cmdline")
-                    .read_bytes()
-                    .replace(b"\0", b" ")
-                    .decode("utf-8", "replace")
-                    .strip()
-                )
-            except OSError:
-                cmdline = fields[3]
-            score = (1 if "+" in fields[1] else 0, pid)
-            choices.append((score, (pid, int(time.time()) - elapsed, cmdline)))
-        return max(choices, default=((), None))[1]
+        return self.process_snapshot().get((tty, agent))
 
-    def resolve(self, row: AgentRow) -> Metadata:
+    def resolve(
+        self, row: AgentRow, processes: ProcessSnapshot | None = None
+    ) -> Metadata:
         if isinstance(row, PaneRow):
-            cwd = self.run(
+            cwd = row.cwd_hint or self.run(
                 "tmux", "display-message", "-p", "-t", row.pane, "#{pane_current_path}"
-            ) or row.cwd_hint
-            names = {"codex"} if row.agent == "codex" else {"claude", "claude-code"}
-            process = self.foreground_process(row.pane, names)
+            )
+            if row.pid:
+                process = (row.pid, row.started_at, row.cmdline)
+            elif processes is not None and row.tty:
+                process = processes.get((row.tty, row.agent))
+            else:
+                process = self.foreground_process(row.pane, row.agent, row.tty)
         else:
             cwd = row.cwd_hint
             process = (row.pid, row.started_at, row.cmdline)

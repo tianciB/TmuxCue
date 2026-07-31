@@ -4,11 +4,10 @@ import os
 from pathlib import Path
 import re
 import stat
-import time
 from typing import Callable
 
 from .core import TerminalRow
-from .metadata import default_command
+from .metadata import ProcessSnapshot, default_command, discover_agent_processes
 
 AGENTS = {"codex": "codex", "claude": "claude", "claude-code": "claude"}
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
@@ -22,10 +21,12 @@ class TerminalDetector:
         command: Callable[[tuple[str, ...], float], str] = default_command,
         proc_root: Path = Path("/proc"),
         uid: int | None = None,
+        process_provider: Callable[[Path, int], ProcessSnapshot] = discover_agent_processes,
     ):
         self.command = command
         self.proc_root = proc_root
         self.uid = os.getuid() if uid is None else uid
+        self.process_provider = process_provider
 
     def run(self, *args: str, timeout: float = 5) -> str:
         return self.command(tuple(args), timeout)
@@ -37,58 +38,38 @@ class TerminalDetector:
             return ""
         return value if value.startswith("/dev/") else f"/dev/{value}"
 
-    def scan(self, excluded_ttys: set[str]) -> dict[str, TerminalRow]:
-        output = self.run("ps", "-eo", "uid=,pid=,tty=,stat=,etimes=,comm=")
+    def scan(
+        self, excluded_ttys: set[str], processes: ProcessSnapshot | None = None
+    ) -> dict[str, TerminalRow]:
         selected: dict[str, TerminalRow] = {}
-        for line in output.splitlines():
-            fields = line.split(None, 5)
-            if len(fields) != 6:
+        processes = (
+            self.process_provider(self.proc_root, self.uid)
+            if processes is None
+            else processes
+        )
+        for (tty, agent), process in processes.items():
+            if tty in excluded_ttys:
                 continue
-            try:
-                uid, pid, elapsed = int(fields[0]), int(fields[1]), int(fields[4])
-            except ValueError:
-                continue
-            tty = self.tty_path(fields[2])
-            process_state, process_name = fields[3], fields[5].lower()
-            agent = AGENTS.get(process_name, "")
-            if (
-                uid != self.uid
-                or not agent
-                or not tty
-                or tty in excluded_ttys
-                or "+" not in process_state
-                or "T" in process_state
-            ):
-                continue
-
-            process_dir = self.proc_root / str(pid)
-            try:
-                cwd = os.readlink(process_dir / "cwd")
-                cmdline = (
-                    (process_dir / "cmdline")
-                    .read_bytes()
-                    .replace(b"\0", b" ")
-                    .decode("utf-8", "replace")
-                    .strip()
-                )
-            except OSError:
-                continue
-
+            pid, started_at, cmdline = process
             row = TerminalRow(
                 pid=pid,
                 tty=tty,
                 agent=agent,
                 state="idle",
-                cwd_hint=cwd,
-                started_at=int(time.time()) - elapsed,
-                cmdline=cmdline or process_name,
+                cwd_hint=self._cwd(pid),
+                started_at=started_at,
+                cmdline=cmdline,
             )
-            target = f"terminal:{pid}"
             previous = selected.get(tty)
             if previous is None or row.pid > previous.pid:
                 selected[tty] = row
-
         return {f"terminal:{row.pid}": row for row in selected.values()}
+
+    def _cwd(self, pid: int) -> str:
+        try:
+            return os.readlink(self.proc_root / str(pid) / "cwd")
+        except OSError:
+            return ""
 
 
 class TerminalTitleWriter:

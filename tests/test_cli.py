@@ -15,7 +15,7 @@ class CliTests(unittest.TestCase):
         output = io.StringIO()
         with redirect_stdout(output):
             self.assertEqual(entrypoint(["version"]), 0)
-        self.assertIn("TmuxCue 0.4.0", output.getvalue())
+        self.assertIn("TmuxCue 0.4.1", output.getvalue())
 
         output = io.StringIO()
         with redirect_stdout(output):

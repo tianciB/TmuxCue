@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import time
 
+EVENT_RETENTION_SECONDS = 7 * 24 * 60 * 60
+
 
 def event_directory() -> Path:
     runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or os.environ.get("TMPDIR") or "/tmp")
@@ -44,19 +46,56 @@ def write_event(payload: dict) -> Path | None:
     return path
 
 
-def load_events() -> dict[tuple[str, str], dict]:
+def load_events(
+    now: float | None = None, retention: float = EVENT_RETENTION_SECONDS
+) -> dict[tuple[str, str], dict]:
     directory = event_directory()
     events: dict[tuple[str, str], dict] = {}
+    now = time.time() if now is None else now
     if not directory.exists():
         return events
     for path in directory.glob("*.json"):
         try:
+            if retention > 0 and path.stat().st_mtime < now - retention:
+                path.unlink()
+                continue
             item = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
         key = (str(item.get("agent") or ""), str(item.get("session_id") or ""))
         if not all(key):
             continue
-        if key not in events or item.get("timestamp", 0) > events[key].get("timestamp", 0):
+        try:
+            timestamp = float(item.get("timestamp", 0))
+            previous_timestamp = float(events.get(key, {}).get("timestamp", 0))
+        except (TypeError, ValueError):
+            continue
+        if key not in events or timestamp > previous_timestamp:
             events[key] = item
     return events
+
+
+class EventReader:
+    """Reload hook events only when the atomic event directory changes."""
+
+    def __init__(self) -> None:
+        self.directory: Path | None = None
+        self.signature: tuple[int, int] | None = None
+        self.events: dict[tuple[str, str], dict] = {}
+
+    @staticmethod
+    def _signature(directory: Path) -> tuple[int, int] | None:
+        try:
+            stat_result = directory.stat()
+            return stat_result.st_mtime_ns, stat_result.st_ctime_ns
+        except OSError:
+            return None
+
+    def poll(self, now: float | None = None) -> dict[tuple[str, str], dict]:
+        directory = event_directory()
+        signature = self._signature(directory)
+        if directory != self.directory or signature != self.signature:
+            self.events = load_events(now=now)
+            self.directory = directory
+            self.signature = self._signature(directory)
+        return self.events

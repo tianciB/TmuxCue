@@ -18,6 +18,10 @@ class PaneRow:
     state: str
     cwd_hint: str
     subject: str
+    tty: str = ""
+    pid: int = 0
+    started_at: int = 0
+    cmdline: str = ""
 
 
 @dataclass(frozen=True)
