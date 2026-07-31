@@ -133,7 +133,7 @@ class TmuxDetector:
 
     def detect_state(self, agent: str, title: str, screen: str) -> str:
         title_text = title or ""
-        screen_tail = "\n".join((screen or "").splitlines()[-35:])
+        screen_lines = (screen or "").splitlines()
 
         approval_patterns = (
             CODEX_APPROVAL_PATTERNS if agent == "codex" else CLAUDE_APPROVAL_PATTERNS
@@ -142,9 +142,10 @@ class TmuxDetector:
             return "blocked"
         if self.title_is_working(title_text):
             return "working"
-        approval_tail = "\n".join((screen or "").splitlines()[-12:])
+        approval_tail = "\n".join(screen_lines[-12:])
         if self.matches_any(approval_patterns, approval_tail):
             return "blocked"
-        if self.matches_any(WORKING_PATTERNS, screen_tail):
+        working_tail = "\n".join(screen_lines[-12:])
+        if self.matches_any(WORKING_PATTERNS, working_tail):
             return "working"
         return "idle"

@@ -51,6 +51,12 @@ class DetectorTests(unittest.TestCase):
         )
         self.assertEqual(self.detector.detect_state("codex", "Codex", screen), "idle")
 
+    def test_old_interrupt_text_outside_status_tail_is_ignored(self):
+        screen = "Esc to interrupt\n" + "\n".join(
+            f"output {index}" for index in range(13)
+        )
+        self.assertEqual(self.detector.detect_state("codex", "Codex", screen), "idle")
+
     def test_plain_prompt_is_idle(self):
         self.assertEqual(self.detector.detect_state("codex", "repo", "› next prompt"), "idle")
 

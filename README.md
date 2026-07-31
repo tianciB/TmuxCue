@@ -8,7 +8,7 @@ TmuxCue shows the live status, model, and topic of Codex and Claude sessions in 
 |---|---|
 | ❓ | Waiting for approval or user input |
 | 🌑 → 🌘 in tmux; stable 🌒 in regular terminals when enabled | Running |
-| ✅ | Turn completed; waiting for the next prompt |
+| ✅ | Turn completed or was interrupted; waiting for the next prompt |
 
 Example titles:
 

@@ -97,10 +97,31 @@ class RuntimeStateTests(unittest.TestCase):
 
             with rollout.open("a", encoding="utf-8") as stream:
                 stream.write(
-                    json.dumps({"type": "event_msg", "payload": {"type": "task_complete"}})
+                    json.dumps(
+                        {
+                            "timestamp": "2026-07-31T11:42:16.576Z",
+                            "type": "event_msg",
+                            "payload": {"type": "task_complete"},
+                        }
+                    )
                     + "\n"
                 )
             self.assertEqual(resolver.runtime_state(metadata), "idle")
+
+            with rollout.open("a", encoding="utf-8") as stream:
+                stream.write(
+                    json.dumps(
+                        {
+                            "timestamp": "2026-07-31T11:47:18.375Z",
+                            "type": "event_msg",
+                            "payload": {"type": "turn_aborted"},
+                        }
+                    )
+                    + "\n"
+                )
+            state, event_time = resolver.runtime_snapshot(metadata)
+            self.assertEqual(state, "aborted")
+            self.assertGreater(event_time, 0)
 
     def test_claude_runtime_state_uses_live_session_status(self):
         with tempfile.TemporaryDirectory() as directory:

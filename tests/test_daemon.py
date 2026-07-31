@@ -95,6 +95,39 @@ class DaemonTests(unittest.TestCase):
             "running",
         )
 
+    def test_turn_aborted_overrides_stale_running_ui_and_hook(self):
+        daemon = IndicatorDaemon()
+        row = PaneRow(
+            "%1", "s:0", "codex", "working", "/tmp", "", "/dev/pts/1", 123, 1, "codex"
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        aborted_at = time.time() - 1
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("aborted", aborted_at)
+        )
+        raw_state = daemon.raw_state("s:0", row, metadata, time.time())
+        self.assertEqual(raw_state, "done")
+        self.assertEqual(
+            daemon.resolve_state(
+                row,
+                raw_state,
+                {"at": aborted_at - 5, "saw_working": False},
+                {"state": "running", "timestamp": aborted_at - 5},
+                time.time(),
+            ),
+            "done",
+        )
+        self.assertEqual(
+            daemon.resolve_state(
+                row,
+                raw_state,
+                None,
+                {"state": "running", "timestamp": aborted_at + 0.5},
+                time.time(),
+            ),
+            "running",
+        )
+
     def test_last_agent_exit_clears_managed_tmux_values(self):
         daemon = IndicatorDaemon()
         daemon.last_scan = time.time()

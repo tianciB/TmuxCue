@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -14,8 +15,26 @@ from .core import Metadata, PaneRow, TerminalRow, clean_text, is_generic_input, 
 UUID_RE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b", re.I)
 ProcessInfo = tuple[int, int, str]
 ProcessSnapshot = dict[tuple[str, str], ProcessInfo]
+RuntimeSnapshot = tuple[str | None, float]
 AgentRow = PaneRow | TerminalRow
 AGENT_PROCESS_NAMES = {"codex": "codex", "claude": "claude", "claude-code": "claude"}
+
+
+def event_timestamp(value: object) -> float:
+    if isinstance(value, (int, float)):
+        timestamp = float(value)
+        return timestamp / 1000 if timestamp > 10_000_000_000 else timestamp
+    if not isinstance(value, str) or not value:
+        return 0.0
+    try:
+        timestamp = float(value)
+        return timestamp / 1000 if timestamp > 10_000_000_000 else timestamp
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
 
 
 def _read_process_stat(path: Path) -> tuple[str, int, int, int] | None:
@@ -258,33 +277,36 @@ class MetadataResolver:
             topic = thread["title"] or ""
         return thread["model"] or "", topic, thread["id"]
 
-    def runtime_state(self, metadata: Metadata) -> str | None:
+    def runtime_snapshot(self, metadata: Metadata) -> RuntimeSnapshot:
         if not metadata.session_id:
-            return None
+            return None, 0.0
         if metadata.agent == "codex":
-            return self.codex_runtime_state(metadata.session_id)
+            return self.codex_runtime_snapshot(metadata.session_id)
         if metadata.agent == "claude":
-            return self.claude_runtime_state(metadata.session_id)
-        return None
+            return self.claude_runtime_snapshot(metadata.session_id)
+        return None, 0.0
 
-    def codex_runtime_state(self, session_id: str) -> str | None:
+    def runtime_state(self, metadata: Metadata) -> str | None:
+        return self.runtime_snapshot(metadata)[0]
+
+    def codex_runtime_snapshot(self, session_id: str) -> RuntimeSnapshot:
         database = self.codex_database()
         if database is None:
-            return None
+            return None, 0.0
         try:
             connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
             row = connection.execute(
                 "select rollout_path from threads where id=?", (session_id,)
             ).fetchone()
         except sqlite3.Error:
-            return None
+            return None, 0.0
         finally:
             try:
                 connection.close()
             except (UnboundLocalError, sqlite3.Error):
                 pass
         if not row or not row[0]:
-            return None
+            return None, 0.0
 
         path = Path(row[0])
         try:
@@ -293,9 +315,10 @@ class MetadataResolver:
                 stream.seek(max(0, size - 524_288))
                 data = stream.read().decode("utf-8", "replace")
         except OSError:
-            return None
+            return None, 0.0
 
         state = None
+        state_timestamp = 0.0
         for line in data.splitlines():
             try:
                 item = json.loads(line)
@@ -308,12 +331,20 @@ class MetadataResolver:
                 state = "working"
             elif event == "task_complete":
                 state = "idle"
-        return state
+            elif event == "turn_aborted":
+                state = "aborted"
+            else:
+                continue
+            state_timestamp = event_timestamp(item.get("timestamp"))
+        return state, state_timestamp
 
-    def claude_runtime_state(self, session_id: str) -> str | None:
+    def codex_runtime_state(self, session_id: str) -> str | None:
+        return self.codex_runtime_snapshot(session_id)[0]
+
+    def claude_runtime_snapshot(self, session_id: str) -> RuntimeSnapshot:
         sessions_dir = self.claude_home / "sessions"
         if not sessions_dir.exists():
-            return None
+            return None, 0.0
         for path in sessions_dir.glob("*.json"):
             try:
                 item = json.loads(path.read_text(encoding="utf-8"))
@@ -322,11 +353,15 @@ class MetadataResolver:
             if item.get("sessionId") != session_id:
                 continue
             status = item.get("status")
+            timestamp = event_timestamp(item.get("updatedAt"))
             if status == "busy":
-                return "working"
+                return "working", timestamp
             if status:
-                return "idle"
-        return None
+                return "idle", timestamp
+        return None, 0.0
+
+    def claude_runtime_state(self, session_id: str) -> str | None:
+        return self.claude_runtime_snapshot(session_id)[0]
 
     def latest_codex_input(self, session_id: str) -> str:
         history = self.codex_home / "history.jsonl"

@@ -120,7 +120,7 @@ class IndicatorDaemon:
             0.05, float(os.environ.get("TMUXCUE_METADATA_RETRY_INTERVAL", "1"))
         )
         self.runtime_interval = max(
-            0.05, float(os.environ.get("TMUXCUE_RUNTIME_INTERVAL", "3"))
+            0.05, float(os.environ.get("TMUXCUE_RUNTIME_INTERVAL", "1"))
         )
         self.prompt_grace = max(
             0.0, float(os.environ.get("TMUXCUE_PROMPT_GRACE", "8"))
@@ -150,6 +150,8 @@ class IndicatorDaemon:
         self.metadata_times: dict[str, float] = {}
         self.runtime_states: dict[str, str | None] = {}
         self.runtime_times: dict[str, float] = {}
+        self.runtime_event_times: dict[str, float] = {}
+        self.raw_observation_times: dict[str, float] = {}
         self.terminal_write_times: dict[str, float] = {}
         self.prompts: dict[str, dict] = {}
         self.recent_prompt_events: dict[str, float] = {}
@@ -205,6 +207,12 @@ class IndicatorDaemon:
     def _store_metadata(
         self, target: str, metadata: Metadata, now: float
     ) -> Metadata:
+        previous = self.metadata.get(target)
+        if previous is not None and previous.session_id != metadata.session_id:
+            self.runtime_states.pop(target, None)
+            self.runtime_times.pop(target, None)
+            self.runtime_event_times.pop(target, None)
+            self.raw_observation_times.pop(target, None)
         self.metadata[target] = metadata
         self.metadata_times[target] = now
         if (
@@ -304,17 +312,39 @@ class IndicatorDaemon:
         return {target for target, row in self.rows.items() if row.agent in agents}
 
     def raw_state(self, target: str, row: AgentRow, metadata: Metadata, now: float) -> str:
-        if isinstance(row, PaneRow):
+        if isinstance(row, PaneRow) and row.state != "working":
+            self.raw_observation_times[target] = self.last_scan
             return row.state
+
         if now - self.runtime_times.get(target, 0) >= self.runtime_interval:
-            self.runtime_states[target] = self.metadata_resolver.runtime_state(metadata)
+            runtime_state, event_time = self.metadata_resolver.runtime_snapshot(metadata)
+            self.runtime_states[target] = runtime_state
             self.runtime_times[target] = now
-        return self.runtime_states.get(target) or row.state
+            self.runtime_event_times[target] = event_time
+
+        runtime_state = self.runtime_states.get(target)
+        event_time = self.runtime_event_times.get(target, 0.0)
+        if runtime_state is not None:
+            self.raw_observation_times[target] = event_time or self.runtime_times.get(
+                target, now
+            )
+            if runtime_state == "working":
+                return "working"
+            if runtime_state == "aborted":
+                return "done"
+            if runtime_state == "idle":
+                return "idle"
+
+        self.raw_observation_times[target] = (
+            self.last_scan
+            if isinstance(row, PaneRow)
+            else self.runtime_times.get(target, self.last_scan)
+        )
+        return row.state
 
     def observation_time(self, row: AgentRow) -> float:
-        if isinstance(row, PaneRow):
-            return self.last_scan
-        return self.runtime_times.get(f"terminal:{row.pid}", self.last_scan)
+        target = row.window if isinstance(row, PaneRow) else f"terminal:{row.pid}"
+        return self.raw_observation_times.get(target, self.last_scan)
 
     def resolve_state(
         self,
@@ -343,6 +373,17 @@ class IndicatorDaemon:
                 return "done"
             if event_state == "ended":
                 return ""
+
+        target = row.window if isinstance(row, PaneRow) else f"terminal:{row.pid}"
+        runtime_state = self.runtime_states.get(target)
+        runtime_event_time = self.runtime_event_times.get(target, 0.0)
+        if (
+            raw_state != "blocked"
+            and runtime_state in {"idle", "aborted"}
+            and runtime_event_time > 0
+            and runtime_event_time >= event_timestamp
+        ):
+            return "done"
 
         if raw_state == "blocked":
             return "approval"
@@ -527,6 +568,8 @@ class IndicatorDaemon:
         self.metadata_times.pop(target, None)
         self.runtime_states.pop(target, None)
         self.runtime_times.pop(target, None)
+        self.runtime_event_times.pop(target, None)
+        self.raw_observation_times.pop(target, None)
         self.terminal_write_times.pop(target, None)
         self.prompts.pop(target, None)
         self.semantic.pop(target, None)

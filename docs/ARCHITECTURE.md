@@ -41,7 +41,7 @@ No input bytes, signals, attach commands, or process-control commands are sent.
 - `approval`: a lifecycle hook or tmux UI indicates an approval request;
 - `running`: a prompt was submitted, a lifecycle event is active, or runtime
   metadata indicates active work;
-- `done`: the interactive agent is waiting for the next prompt.
+- `done`: the turn completed or was interrupted, and the agent is waiting for the next prompt.
 
 ## Installation layout
 
