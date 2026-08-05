@@ -1,8 +1,8 @@
-# Python Runtime Consistency v0.4.3 Implementation Plan
+# Runtime and State Consistency v0.4.4 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make installation and runtime use the same validated Python 3.10+ interpreter, repair the current installation without disturbing tmux panes or AI processes, and publish TmuxCue v0.4.3.
+**Goal:** Make installation and runtime use the same validated Python 3.10+ interpreter, clear stale approval states after work resumes or completes, repair the current installation without disturbing tmux panes or AI processes, and publish TmuxCue v0.4.4.
 
 **Architecture:** `scripts/install.sh` resolves one compatible interpreter, records it in each immutable release as a `python` symlink, and makes every installed launcher execute that release-local path. Installation and uninstall helpers reuse the same interpreter, while a launcher smoke test and delayed systemd health check prevent a transiently active but crashing service from being accepted.
 
@@ -11,7 +11,8 @@
 ## Global Constraints
 
 - Keep `requires-python = ">=3.10"` unchanged.
-- Publish the fix as version `0.4.3` and tag `v0.4.3`.
+- Publish the complete fix as version `0.4.4` and tag `v0.4.4`.
+- Do not move or force-update the already-pushed, unreleased `v0.4.3` tag.
 - Add no runtime dependency and no virtual environment.
 - Never run tmux `kill-*`, `new-session`, `send-keys`, `attach`, `respawn`, or `source-file`.
 - Never restart or signal the tmux server, a tmux pane process, Codex, or Claude.
@@ -26,13 +27,13 @@
 - Modify `scripts/install.sh`: select and validate Python, create the release-local interpreter symlink, generate consistent wrappers, smoke-test the installed CLI, and check service stability.
 - Modify `scripts/uninstall.sh`: reuse `TMUXCUE_PYTHON` or the active release interpreter, with a compatible source-tree fallback.
 - Modify `tests/test_install_safety.py`: lock down interpreter consistency and preserve process-safety checks.
-- Modify `src/tmuxcue/__init__.py`: set runtime version `0.4.3`.
-- Modify `pyproject.toml`: set package version `0.4.3`.
+- Modify `src/tmuxcue/__init__.py`: set runtime version `0.4.4`.
+- Modify `pyproject.toml`: set package version `0.4.4`.
 - Modify `tests/test_cli.py`: expect the new public version.
 - Modify `src/tmuxcue/service.py`: preserve a fresh working-pane observation
   when runtime metadata contains an older `task_started` timestamp.
 - Modify `tests/test_daemon.py`: reproduce automatic approval followed by
-  continued work.
+  continued work and by a completed turn.
 - Use `docs/superpowers/specs/2026-08-05-python-runtime-consistency-design.md` as the release design record.
 
 ### Task 1: Add the Installer Runtime Regression Test
@@ -281,7 +282,7 @@ git add scripts/install.sh scripts/uninstall.sh tests/test_install_safety.py
 git commit -m "fix: pin the validated Python runtime"
 ```
 
-### Task 4: Bump the Patch Version to 0.4.3
+### Task 4: Bump the Patch Version to 0.4.4
 
 **Files:**
 - Modify: `tests/test_cli.py`
@@ -291,7 +292,7 @@ git commit -m "fix: pin the validated Python runtime"
 
 **Interfaces:**
 - Consumes: the existing `__version__` API.
-- Produces: public CLI and package version `0.4.3`.
+- Produces: public CLI and package version `0.4.4`.
 
 - [ ] **Step 1: Change the CLI test first**
 
@@ -304,7 +305,7 @@ self.assertIn("TmuxCue 0.4.2", output.getvalue())
 with:
 
 ```python
-self.assertIn("TmuxCue 0.4.3", output.getvalue())
+self.assertIn("TmuxCue 0.4.4", output.getvalue())
 ```
 
 - [ ] **Step 2: Confirm the version test fails**
@@ -316,7 +317,7 @@ PYTHONPATH=src "$HOME/anaconda3/bin/python3" \
   -m unittest tests.test_cli.CliTests.test_version_and_help -v
 ```
 
-Expected: `FAIL` because the CLI still prints `TmuxCue 0.4.2`.
+Expected: `FAIL` because the CLI still prints `TmuxCue 0.4.3`.
 
 - [ ] **Step 3: Update both authoritative version values**
 
@@ -325,13 +326,13 @@ Set `src/tmuxcue/__init__.py` to:
 ```python
 """TmuxCue."""
 
-__version__ = "0.4.3"
+__version__ = "0.4.4"
 ```
 
 Set the project version in `pyproject.toml` to:
 
 ```toml
-version = "0.4.3"
+version = "0.4.4"
 ```
 
 - [ ] **Step 4: Run the CLI version test**
@@ -351,7 +352,7 @@ Run:
 
 ```bash
 git add pyproject.toml src/tmuxcue/__init__.py tests/test_cli.py
-git commit -m "chore: release version 0.4.3"
+git commit -m "chore: release version 0.4.4"
 ```
 
 ### Task 5: Let a Fresh Working Scan Supersede Cached Approval
@@ -463,14 +464,137 @@ git add src/tmuxcue/service.py tests/test_daemon.py
 git commit -m "fix: clear stale approval after work resumes"
 ```
 
-### Task 6: Run the Complete Test Suite
+### Task 6: Let a Fresh Idle Scan Supersede Cached Approval
+
+**Files:**
+- Modify: `tests/test_daemon.py`
+- Modify: `src/tmuxcue/service.py`
+- Test: `tests/test_daemon.py`
+
+**Interfaces:**
+- Consumes: a `PaneRow` observation newer than an approval hook.
+- Produces: pane-derived `done`, `running`, or `approval` after the hook is no
+  longer the newest observation; direct-terminal fallback remains unchanged.
+
+- [ ] **Step 1: Add the failing completed-turn regression test**
+
+Add this method after
+`test_fresh_working_scan_supersedes_older_approval_hook`:
+
+```python
+    def test_fresh_idle_scan_supersedes_older_approval_hook(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        metadata = Metadata("codex", "model", "topic", "session")
+        row = PaneRow(
+            "%1", "s:0", "codex", "idle", "/tmp", "", "/dev/pts/1"
+        )
+        daemon.last_scan = now
+        daemon.runtime_states["s:0"] = "working"
+        daemon.runtime_event_times["s:0"] = now - 20
+
+        raw_state = daemon.raw_state("s:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "idle")
+        self.assertEqual(daemon.observation_time(row), now)
+        self.assertEqual(
+            daemon.resolve_state(
+                row,
+                raw_state,
+                None,
+                {
+                    "state": "approval",
+                    "event": "PermissionRequest",
+                    "timestamp": now - 5,
+                },
+                now,
+            ),
+            "done",
+        )
+
+        blocked = PaneRow(
+            "%2", "s:1", "codex", "blocked", "/tmp", "", "/dev/pts/2"
+        )
+        self.assertEqual(
+            daemon.resolve_state(
+                blocked,
+                daemon.raw_state("s:1", blocked, metadata, now),
+                None,
+                {
+                    "state": "approval",
+                    "event": "PermissionRequest",
+                    "timestamp": now - 5,
+                },
+                now,
+            ),
+            "approval",
+        )
+```
+
+- [ ] **Step 2: Run the regression test and confirm stale approval wins**
+
+Run:
+
+```bash
+PYTHONPATH=src:tests "$HOME/anaconda3/bin/python3" \
+  -m unittest \
+  test_daemon.DaemonTests.test_fresh_idle_scan_supersedes_older_approval_hook \
+  -v
+```
+
+Expected: `FAIL` because the old approval fallback returns `approval` for the
+fresh idle pane.
+
+- [ ] **Step 3: Trust a newer pane observation**
+
+Replace the approval fallback in `IndicatorDaemon.resolve_state()` with:
+
+```python
+        if hook_state == "approval":
+            if (
+                isinstance(row, PaneRow)
+                and self.observation_time(row) >= hook_timestamp
+            ):
+                return state
+            return "approval" if raw_state != "working" else state
+```
+
+The earlier `raw_state == "blocked"` branch remains authoritative, so a real
+approval dialog still returns `approval`.
+
+- [ ] **Step 4: Run all pane and terminal approval regressions**
+
+Run:
+
+```bash
+PYTHONPATH=src:tests "$HOME/anaconda3/bin/python3" \
+  -m unittest \
+  test_daemon.DaemonTests.test_terminal_hook_state_is_resolved_without_process_control \
+  test_daemon.DaemonTests.test_fresh_hook_events_override_a_cached_working_scan \
+  test_daemon.DaemonTests.test_fresh_working_scan_supersedes_older_approval_hook \
+  test_daemon.DaemonTests.test_fresh_idle_scan_supersedes_older_approval_hook \
+  -v
+```
+
+Expected: all four tests pass.
+
+- [ ] **Step 5: Commit the completed-state fix**
+
+Run:
+
+```bash
+git add src/tmuxcue/service.py tests/test_daemon.py
+git commit -m "fix: clear stale approval after turn completion"
+```
+
+### Task 7: Run the Complete Test Suite
 
 **Files:**
 - Verify: all source, script, and test files.
 
 **Interfaces:**
-- Consumes: Tasks 1–5.
-- Produces: a tested v0.4.3 candidate.
+- Consumes: Tasks 1–6.
+- Produces: a tested v0.4.4 candidate.
 
 - [ ] **Step 1: Run all unit tests with the selected interpreter**
 
@@ -497,7 +621,7 @@ Expected:
 ```text
 systemd-user: ok
 tmux: ok
-TmuxCue 0.4.3
+TmuxCue 0.4.4
 ```
 
 `tmux` may report `optional (not installed)` only in an isolated test
@@ -516,7 +640,7 @@ Expected: a clean worktree containing only the design, implementation plan,
 runtime fix, version bump, and any test-driven documentation cleanup ahead of
 `origin/main`.
 
-### Task 7: Repair the Current Installation Without Disturbing Other Processes
+### Task 8: Repair the Current Installation Without Disturbing Other Processes
 
 **Files:**
 - Install from: repository root.
@@ -526,25 +650,25 @@ runtime fix, version bump, and any test-driven documentation cleanup ahead of
 
 **Interfaces:**
 - Consumes: the tested installer and current live process identities.
-- Produces: an active v0.4.3 service and an exact before/after process match.
+- Produces: an active v0.4.4 service and an exact before/after process match.
 
 - [ ] **Step 1: Capture the live safety baseline**
 
 Run outside the filesystem/process sandbox:
 
 ```bash
-mkdir -p /tmp/tmuxcue-v0.4.3-safety
+mkdir -p /tmp/tmuxcue-v0.4.4-safety
 pgrep -o -u "$(id -u)" tmux \
-  > /tmp/tmuxcue-v0.4.3-safety/tmux.before
+  > /tmp/tmuxcue-v0.4.4-safety/tmux.before
 tmux list-panes -a \
   -F '#{session_name}:#{window_index}.#{pane_index}:#{pane_pid}' \
-  | sort > /tmp/tmuxcue-v0.4.3-safety/panes.before
+  | sort > /tmp/tmuxcue-v0.4.4-safety/panes.before
 ps -eo uid=,pid=,comm= \
   | awk -v uid="$(id -u)" \
       '$1 == uid && ($3 == "codex" || $3 == "claude" || $3 == "claude-code") { print $2 ":" $3 }' \
-  | sort > /tmp/tmuxcue-v0.4.3-safety/ai.before
+  | sort > /tmp/tmuxcue-v0.4.4-safety/ai.before
 date -u +%Y-%m-%dT%H:%M:%SZ \
-  > /tmp/tmuxcue-v0.4.3-safety/install-started-at
+  > /tmp/tmuxcue-v0.4.4-safety/install-started-at
 ```
 
 Expected: all commands succeed; no tmux or AI process is controlled.
@@ -572,20 +696,20 @@ Run:
 
 ```bash
 pgrep -o -u "$(id -u)" tmux \
-  > /tmp/tmuxcue-v0.4.3-safety/tmux.after
+  > /tmp/tmuxcue-v0.4.4-safety/tmux.after
 tmux list-panes -a \
   -F '#{session_name}:#{window_index}.#{pane_index}:#{pane_pid}' \
-  | sort > /tmp/tmuxcue-v0.4.3-safety/panes.after
+  | sort > /tmp/tmuxcue-v0.4.4-safety/panes.after
 ps -eo uid=,pid=,comm= \
   | awk -v uid="$(id -u)" \
       '$1 == uid && ($3 == "codex" || $3 == "claude" || $3 == "claude-code") { print $2 ":" $3 }' \
-  | sort > /tmp/tmuxcue-v0.4.3-safety/ai.after
-cmp /tmp/tmuxcue-v0.4.3-safety/tmux.before \
-    /tmp/tmuxcue-v0.4.3-safety/tmux.after
-cmp /tmp/tmuxcue-v0.4.3-safety/panes.before \
-    /tmp/tmuxcue-v0.4.3-safety/panes.after
-cmp /tmp/tmuxcue-v0.4.3-safety/ai.before \
-    /tmp/tmuxcue-v0.4.3-safety/ai.after
+  | sort > /tmp/tmuxcue-v0.4.4-safety/ai.after
+cmp /tmp/tmuxcue-v0.4.4-safety/tmux.before \
+    /tmp/tmuxcue-v0.4.4-safety/tmux.after
+cmp /tmp/tmuxcue-v0.4.4-safety/panes.before \
+    /tmp/tmuxcue-v0.4.4-safety/panes.after
+cmp /tmp/tmuxcue-v0.4.4-safety/ai.before \
+    /tmp/tmuxcue-v0.4.4-safety/ai.after
 ```
 
 Expected: every `cmp` exits `0` with no output.
@@ -602,13 +726,13 @@ systemctl --user is-active tmuxcue.service
 MAIN_PID="$(systemctl --user show tmuxcue.service -p MainPID --value)"
 readlink -f "/proc/$MAIN_PID/exe"
 journalctl --user-unit=tmuxcue.service \
-  --since "$(cat /tmp/tmuxcue-v0.4.3-safety/install-started-at)" \
+  --since "$(cat /tmp/tmuxcue-v0.4.4-safety/install-started-at)" \
   --no-pager -o short-iso
 ```
 
 Expected:
 
-- CLI output is `TmuxCue 0.4.3`.
+- CLI output is `TmuxCue 0.4.4`.
 - The release-local `python` and service executable both resolve to
   `$HOME/anaconda3/bin/python3.12`.
 - The unit is `enabled` and `active`.
@@ -627,16 +751,16 @@ tmux list-windows -a \
 Expected: windows containing detected Codex or Claude processes have non-empty
 agent state, icon, and title fields. No session, window, or pane is created.
 
-### Task 8: Synchronize, Push, Tag, and Publish v0.4.3
+### Task 9: Synchronize, Push, Tag, and Publish v0.4.4
 
 **Files:**
 - Verify: Git history and remote refs.
-- Temporary release notes: `/tmp/tmuxcue-v0.4.3-release.md`.
+- Temporary release notes: `/tmp/tmuxcue-v0.4.4-release.md`.
 
 **Interfaces:**
-- Consumes: the clean, tested, live-verified v0.4.3 commit.
-- Produces: updated `origin/main`, annotated tag `v0.4.3`, and GitHub Release
-  `v0.4.3`.
+- Consumes: the clean, tested, live-verified v0.4.4 commit.
+- Produces: updated `origin/main`, untouched historical tag `v0.4.3`,
+  annotated tag `v0.4.4`, and GitHub Release `v0.4.4`.
 
 - [ ] **Step 1: Fetch and verify that remote main has not diverged**
 
@@ -646,22 +770,25 @@ Run:
 git fetch origin
 git merge-base --is-ancestor origin/main HEAD
 git status --short --branch
+test "$(git rev-parse 'v0.4.3^{}')" = \
+  "592b20269862c8638bf73ff7123148f659e06c1f"
 ```
 
 Expected: the ancestry check exits `0` and the worktree is clean. If
 `origin/main` advanced independently, rebase the local release commits onto
-`origin/main`, rerun Tasks 6 and 7, and only then continue.
+`origin/main`, rerun Tasks 7 and 8, and only then continue. The existing
+`v0.4.3` tag remains unchanged.
 
 - [ ] **Step 2: Create the annotated release tag**
 
 Run:
 
 ```bash
-git tag -a v0.4.3 -m "TmuxCue v0.4.3"
-git show --no-patch --decorate v0.4.3
+git tag -a v0.4.4 -m "TmuxCue v0.4.4"
+git show --no-patch --decorate v0.4.4
 ```
 
-Expected: `v0.4.3` points to the tested `HEAD`.
+Expected: `v0.4.4` points to the tested `HEAD`; `v0.4.3` remains unchanged.
 
 - [ ] **Step 3: Push the branch and tag**
 
@@ -669,14 +796,14 @@ Run:
 
 ```bash
 git push origin main
-git push origin v0.4.3
+git push origin v0.4.4
 ```
 
 Expected: GitHub accepts both refs without force pushing.
 
 - [ ] **Step 4: Write exact GitHub Release notes**
 
-Create `/tmp/tmuxcue-v0.4.3-release.md` with:
+Create `/tmp/tmuxcue-v0.4.4-release.md` with:
 
 ```markdown
 ## Fixed
@@ -688,7 +815,8 @@ Create `/tmp/tmuxcue-v0.4.3-release.md` with:
 - Smoke-test the installed launcher and require the restarted service to remain
   active before installation is accepted.
 - Clear a cached automatic-approval indicator when a newer native pane scan
-  confirms that Codex is still working.
+  confirms that Codex is still working or has completed and returned to an
+  idle prompt.
 
 ## Safety verification
 
@@ -748,17 +876,17 @@ authorization as `tianciB`; do not expose or store a token in the repository.
 Run:
 
 ```bash
-/tmp/gh/gh release create v0.4.3 \
+/tmp/gh/gh release create v0.4.4 \
   --repo tianciB/TmuxCue \
   --verify-tag \
-  --title "TmuxCue v0.4.3" \
-  --notes-file /tmp/tmuxcue-v0.4.3-release.md
-/tmp/gh/gh release view v0.4.3 \
+  --title "TmuxCue v0.4.4" \
+  --notes-file /tmp/tmuxcue-v0.4.4-release.md
+/tmp/gh/gh release view v0.4.4 \
   --repo tianciB/TmuxCue \
   --json tagName,name,isDraft,isPrerelease,url
 ```
 
-Expected: `tagName` is `v0.4.3`, name is `TmuxCue v0.4.3`, and both
+Expected: `tagName` is `v0.4.4`, name is `TmuxCue v0.4.4`, and both
 `isDraft` and `isPrerelease` are `false`.
 
 - [ ] **Step 7: Perform final local and remote checks**
@@ -767,13 +895,13 @@ Run:
 
 ```bash
 git status --short --branch
-git ls-remote --heads --tags origin main v0.4.3
+git ls-remote --heads --tags origin main v0.4.3 v0.4.4
 "$HOME/.local/bin/tmuxcue" version
 systemctl --user is-active tmuxcue.service
 ```
 
 Expected: clean `main` tracking `origin/main`, matching remote branch/tag refs,
-installed version `TmuxCue 0.4.3`, and service state `active`.
+installed version `TmuxCue 0.4.4`, and service state `active`.
 
 ## Self-Review
 
@@ -782,5 +910,5 @@ installed version `TmuxCue 0.4.3`, and service state `active`.
   non-disruption proof, versioning, push, tag, and GitHub Release.
 - All code-changing steps contain exact code or replacements.
 - `PYTHON_CANDIDATE`, `PYTHON_BIN`, `TMUXCUE_PYTHON`, release-local `python`,
-  and version `0.4.3` are named consistently across tasks.
+  and version `0.4.4` are named consistently across tasks.
 - No task uses a prohibited tmux process-control command.

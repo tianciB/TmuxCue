@@ -1,4 +1,4 @@
-# TmuxCue Python Runtime Consistency Design
+# TmuxCue v0.4.4 Runtime and State Consistency Design
 
 ## Problem
 
@@ -24,6 +24,14 @@ older Codex `task_started` timestamp whenever runtime metadata reports
 `working`. The approval event therefore appears newer forever and the window
 incorrectly remains at `❓` while the pane visibly shows active work.
 
+A later idle interval exposed the complementary case. After the pane completed
+its turn, a fresh scan correctly reported `idle`, but the final
+`hook_state == "approval"` fallback reapplied an older `PermissionRequest`
+event because the raw state was no longer `working`. The window therefore
+changed from running to `❓` after completion, and only returned to running when
+another task began. For a tmux pane, an approval hook that is older than the
+latest native pane scan must not override either `working` or `idle`.
+
 ## Goals
 
 - Use one Python 3.10+ interpreter for installation checks, the installed CLI,
@@ -31,12 +39,12 @@ incorrectly remains at `❓` while the pane visibly shows active work.
 - Fail installation before changing the active release when no compatible
   interpreter is available.
 - Detect a broken installed launcher before declaring installation successful.
-- Let a fresh pane scan showing active work supersede an older cached approval
-  hook while preserving genuine approval dialogs.
+- Let a fresh pane scan showing active work or an idle prompt supersede an
+  older cached approval hook while preserving genuine approval dialogs.
 - Preserve the existing guarantee that installation never terminates,
   restarts, attaches to, or sends input to tmux panes or AI processes.
 - Repair the current installation by restarting only `tmuxcue.service`.
-- Publish the correction as patch release `v0.4.3`.
+- Publish the complete correction as patch release `v0.4.4`.
 
 ## Non-goals
 
@@ -130,7 +138,8 @@ already produce the desired behavior:
 
 - a hook newer than the latest pane scan can immediately show `approval`;
 - a later pane scan that still detects `blocked` preserves `approval`;
-- a later pane scan that detects `working` returns to `running`.
+- a later pane scan that detects `working` returns to `running`;
+- a later pane scan that detects `idle` returns to `done`.
 
 The defect is in `IndicatorDaemon.raw_state()`. When both Codex runtime
 metadata and the current pane scan report `working`, the method records only
@@ -144,6 +153,18 @@ This does not introduce a timeout. A real approval dialog remains protected by
 the detector's `blocked` state or by a hook that is newer than the latest pane
 scan. The change only allows concrete, newer evidence of continued work to
 supersede a cached approval hook.
+
+The final approval fallback must follow the same timestamp rule. Once a
+`PaneRow` observation is newer than the approval hook, `resolve_state()` trusts
+the pane-derived visual state instead of reapplying the stale approval:
+
+- `blocked` remains `approval`;
+- `working` remains `running`;
+- `idle` becomes `done`.
+
+`TerminalRow` keeps the existing approval fallback because a regular terminal
+does not provide the same bounded pane-screen observation. This change is
+based on ordering of concrete events, not on an elapsed-time expiry.
 
 ### Safety verification
 
@@ -179,6 +200,15 @@ failure:
 Keep the existing test proving that a hook newer than the most recent pane scan
 still produces `approval`.
 
+Add a second regression matching the completed-turn failure:
+
+1. a cached runtime state and approval hook are older than the pane scan;
+2. the latest `PaneRow` state is `idle`;
+3. the resolved state is `done`, not `approval`.
+
+Also assert that a latest `blocked` pane still resolves to `approval`, and keep
+the existing direct-terminal approval behavior unchanged.
+
 Run the complete unit-test suite with the selected Python 3.12 interpreter.
 Also run the installed `tmuxcue version`, inspect the user service state and
 recent journal, and confirm that window options begin updating while all
@@ -186,19 +216,19 @@ captured process identities remain unchanged.
 
 ## Versioning and Release
 
-The current local `main`, remote `origin/main`, and release tag `v0.4.2` all
-point to commit `7a211ec099147785c07b0020df0e9606ca9241d0`, so no upstream merge
-is required before implementation.
+The incomplete candidate was pushed as tag `v0.4.3` at commit
+`592b20269862c8638bf73ff7123148f659e06c1f`, but no GitHub Release was
+created. The public tag will not be moved or force-updated.
 
 After all tests and live safety checks pass:
 
-1. Change the package version from `0.4.2` to `0.4.3` in every authoritative
+1. Change the package version from `0.4.3` to `0.4.4` in every authoritative
    version location.
 2. Commit the tested source, tests, documentation, and version bump.
 3. Push `main` to `origin`.
-4. Create and push annotated tag `v0.4.3`.
-5. Create a GitHub Release for `v0.4.3` whose notes describe the mismatched
-   install/runtime Python bug, the interpreter pinning fix, and the
+4. Create and push annotated tag `v0.4.4`.
+5. Create a GitHub Release for `v0.4.4` whose notes describe the mismatched
+   install/runtime Python bug, both stale-approval fixes, and the
    non-disruptive verification.
 
 The GitHub CLI is not currently installed on the host. Release creation will
@@ -214,9 +244,10 @@ the tested source.
 - The service process uses the validated Python 3.10+ interpreter.
 - A pane that continues working after automatic approval returns to the
   running indicator on the next scan.
+- A pane that has completed after automatic approval displays `✅`, not `❓`.
 - A genuine approval event newer than the latest pane scan still displays
   `❓`.
 - Existing tmux server, pane, Codex, and Claude PIDs are unchanged.
 - The full test suite passes.
-- Remote `main`, tag `v0.4.3`, and GitHub Release `v0.4.3` contain the tested
+- Remote `main`, tag `v0.4.4`, and GitHub Release `v0.4.4` contain the tested
   fix.
