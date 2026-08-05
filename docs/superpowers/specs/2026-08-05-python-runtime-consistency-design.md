@@ -15,6 +15,15 @@ user service immediately fails while evaluating Python 3.9+ type-alias syntax
 in `src/tmuxcue/metadata.py`. Because the service has `Restart=on-failure`, it
 then enters a restart loop.
 
+Live verification of the repaired service exposed a second pre-release issue.
+A Codex `PermissionRequest` hook can be followed by automatic approval, after
+which Codex continues working without emitting another lifecycle hook. The
+daemon already intends a newer native pane scan to supersede such a cached
+approval event, but `raw_state()` replaces the pane scan timestamp with the
+older Codex `task_started` timestamp whenever runtime metadata reports
+`working`. The approval event therefore appears newer forever and the window
+incorrectly remains at `❓` while the pane visibly shows active work.
+
 ## Goals
 
 - Use one Python 3.10+ interpreter for installation checks, the installed CLI,
@@ -22,6 +31,8 @@ then enters a restart loop.
 - Fail installation before changing the active release when no compatible
   interpreter is available.
 - Detect a broken installed launcher before declaring installation successful.
+- Let a fresh pane scan showing active work supersede an older cached approval
+  hook while preserving genuine approval dialogs.
 - Preserve the existing guarantee that installation never terminates,
   restarts, attaches to, or sends input to tmux panes or AI processes.
 - Repair the current installation by restarting only `tmuxcue.service`.
@@ -30,7 +41,10 @@ then enters a restart loop.
 ## Non-goals
 
 - Add support for Python 3.8 or 3.9.
-- Change status detection, title formatting, hooks, or terminal-title behavior.
+- Change detector pattern matching, title formatting, the installed hook set,
+  or terminal-title behavior beyond the timestamp-precedence correction.
+- Add a timeout that could clear a genuine approval request merely because it
+  has remained unanswered for a fixed duration.
 - Restart the tmux server, tmux sessions, panes, Codex, or Claude.
 - Introduce a virtual environment or third-party dependency.
 
@@ -108,6 +122,29 @@ Installation then verifies that the service remains active after a short
 stability interval rather than accepting only its transient startup state.
 Any failure follows the existing rollback path.
 
+### Approval-event precedence
+
+`IndicatorDaemon.resolve_state()` compares lifecycle-event timestamps against
+the timestamp of the latest independent state observation. Its existing rules
+already produce the desired behavior:
+
+- a hook newer than the latest pane scan can immediately show `approval`;
+- a later pane scan that still detects `blocked` preserves `approval`;
+- a later pane scan that detects `working` returns to `running`.
+
+The defect is in `IndicatorDaemon.raw_state()`. When both Codex runtime
+metadata and the current pane scan report `working`, the method records only
+the older runtime `task_started` timestamp as the observation time. The fix
+records the later of:
+
+- the runtime event timestamp; and
+- `last_scan`, when the current `PaneRow` also reports `working`.
+
+This does not introduce a timeout. A real approval dialog remains protected by
+the detector's `blocked` state or by a hook that is newer than the latest pane
+scan. The change only allows concrete, newer evidence of continued work to
+supersede a cached approval hook.
+
 ### Safety verification
 
 Before repair, capture:
@@ -130,6 +167,17 @@ Update `tests/test_install_safety.py` to verify that:
 - installation invokes the installed CLI as a smoke test;
 - uninstall reuses the selected runtime interpreter;
 - all existing forbidden tmux process-control command checks remain intact.
+
+Update `tests/test_daemon.py` with a regression sequence matching the live
+failure:
+
+1. an older Codex runtime event reports `working`;
+2. a later `PermissionRequest` hook reports `approval`;
+3. a still later pane scan reports `working`;
+4. the resolved visual state is `running`, not `approval`.
+
+Keep the existing test proving that a hook newer than the most recent pane scan
+still produces `approval`.
 
 Run the complete unit-test suite with the selected Python 3.12 interpreter.
 Also run the installed `tmuxcue version`, inspect the user service state and
@@ -164,6 +212,10 @@ the tested source.
 - `tmuxcue version` prints the installed version without an exception.
 - `tmuxcue.service` is enabled and remains active without restart-loop errors.
 - The service process uses the validated Python 3.10+ interpreter.
+- A pane that continues working after automatic approval returns to the
+  running indicator on the next scan.
+- A genuine approval event newer than the latest pane scan still displays
+  `❓`.
 - Existing tmux server, pane, Codex, and Claude PIDs are unchanged.
 - The full test suite passes.
 - Remote `main`, tag `v0.4.3`, and GitHub Release `v0.4.3` contain the tested

@@ -29,6 +29,10 @@
 - Modify `src/tmuxcue/__init__.py`: set runtime version `0.4.3`.
 - Modify `pyproject.toml`: set package version `0.4.3`.
 - Modify `tests/test_cli.py`: expect the new public version.
+- Modify `src/tmuxcue/service.py`: preserve a fresh working-pane observation
+  when runtime metadata contains an older `task_started` timestamp.
+- Modify `tests/test_daemon.py`: reproduce automatic approval followed by
+  continued work.
 - Use `docs/superpowers/specs/2026-08-05-python-runtime-consistency-design.md` as the release design record.
 
 ### Task 1: Add the Installer Runtime Regression Test
@@ -350,13 +354,122 @@ git add pyproject.toml src/tmuxcue/__init__.py tests/test_cli.py
 git commit -m "chore: release version 0.4.3"
 ```
 
-### Task 5: Run the Complete Test Suite
+### Task 5: Let a Fresh Working Scan Supersede Cached Approval
+
+**Files:**
+- Modify: `tests/test_daemon.py`
+- Modify: `src/tmuxcue/service.py`
+- Test: `tests/test_daemon.py`
+
+**Interfaces:**
+- Consumes: `PaneRow.state`, `IndicatorDaemon.last_scan`, and the Codex runtime
+  state and event timestamp.
+- Produces: an observation timestamp representing the freshest independent
+  evidence when both the pane and runtime metadata report active work.
+
+- [ ] **Step 1: Add the failing live-sequence regression test**
+
+Add this method after
+`test_fresh_hook_events_override_a_cached_working_scan`:
+
+```python
+    def test_fresh_working_scan_supersedes_older_approval_hook(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        row = PaneRow(
+            "%1", "s:0", "codex", "working", "/tmp", "", "/dev/pts/1"
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        daemon.last_scan = now
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("working", now - 20)
+        )
+
+        raw_state = daemon.raw_state("s:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "working")
+        self.assertEqual(daemon.observation_time(row), now)
+        self.assertEqual(
+            daemon.resolve_state(
+                row,
+                raw_state,
+                None,
+                {
+                    "state": "approval",
+                    "event": "PermissionRequest",
+                    "timestamp": now - 5,
+                },
+                now,
+            ),
+            "running",
+        )
+```
+
+- [ ] **Step 2: Run the regression test and confirm the old timestamp loses**
+
+Run:
+
+```bash
+PYTHONPATH=src:tests "$HOME/anaconda3/bin/python3" \
+  -m unittest \
+  test_daemon.DaemonTests.test_fresh_working_scan_supersedes_older_approval_hook \
+  -v
+```
+
+Expected: `FAIL` because `observation_time(row)` is `now - 20`, so the cached
+approval hook incorrectly wins.
+
+- [ ] **Step 3: Preserve the fresh pane observation**
+
+In `IndicatorDaemon.raw_state()`, replace the direct assignment inside
+`if runtime_state is not None:` with:
+
+```python
+            observation_time = event_time or self.runtime_times.get(target, now)
+            if (
+                runtime_state == "working"
+                and isinstance(row, PaneRow)
+                and row.state == "working"
+            ):
+                observation_time = max(observation_time, self.last_scan)
+            self.raw_observation_times[target] = observation_time
+```
+
+Keep the existing `working`, `aborted`, and `idle` return branches unchanged.
+
+- [ ] **Step 4: Run both approval-precedence tests**
+
+Run:
+
+```bash
+PYTHONPATH=src:tests "$HOME/anaconda3/bin/python3" \
+  -m unittest \
+  test_daemon.DaemonTests.test_fresh_hook_events_override_a_cached_working_scan \
+  test_daemon.DaemonTests.test_fresh_working_scan_supersedes_older_approval_hook \
+  -v
+```
+
+Expected: both tests pass, proving:
+
+- a hook newer than a cached scan immediately displays approval;
+- a later scan that still observes work clears the cached approval state.
+
+- [ ] **Step 5: Commit the state-precedence fix**
+
+Run:
+
+```bash
+git add src/tmuxcue/service.py tests/test_daemon.py
+git commit -m "fix: clear stale approval after work resumes"
+```
+
+### Task 6: Run the Complete Test Suite
 
 **Files:**
 - Verify: all source, script, and test files.
 
 **Interfaces:**
-- Consumes: Tasks 1–4.
+- Consumes: Tasks 1–5.
 - Produces: a tested v0.4.3 candidate.
 
 - [ ] **Step 1: Run all unit tests with the selected interpreter**
@@ -403,7 +516,7 @@ Expected: a clean worktree containing only the design, implementation plan,
 runtime fix, version bump, and any test-driven documentation cleanup ahead of
 `origin/main`.
 
-### Task 6: Repair the Current Installation Without Disturbing Other Processes
+### Task 7: Repair the Current Installation Without Disturbing Other Processes
 
 **Files:**
 - Install from: repository root.
@@ -514,7 +627,7 @@ tmux list-windows -a \
 Expected: windows containing detected Codex or Claude processes have non-empty
 agent state, icon, and title fields. No session, window, or pane is created.
 
-### Task 7: Synchronize, Push, Tag, and Publish v0.4.3
+### Task 8: Synchronize, Push, Tag, and Publish v0.4.3
 
 **Files:**
 - Verify: Git history and remote refs.
@@ -537,7 +650,7 @@ git status --short --branch
 
 Expected: the ancestry check exits `0` and the worktree is clean. If
 `origin/main` advanced independently, rebase the local release commits onto
-`origin/main`, rerun Tasks 5 and 6, and only then continue.
+`origin/main`, rerun Tasks 6 and 7, and only then continue.
 
 - [ ] **Step 2: Create the annotated release tag**
 
@@ -574,6 +687,8 @@ Create `/tmp/tmuxcue-v0.4.3-release.md` with:
   newer PATH interpreter but crash the service under Python 3.8.
 - Smoke-test the installed launcher and require the restarted service to remain
   active before installation is accepted.
+- Clear a cached automatic-approval indicator when a newer native pane scan
+  confirms that Codex is still working.
 
 ## Safety verification
 
@@ -663,8 +778,8 @@ installed version `TmuxCue 0.4.3`, and service state `active`.
 ## Self-Review
 
 - The plan covers every design goal: interpreter selection, wrappers,
-  uninstall, health checks, tests, live non-disruption proof, versioning,
-  push, tag, and GitHub Release.
+  uninstall, health checks, approval-event precedence, tests, live
+  non-disruption proof, versioning, push, tag, and GitHub Release.
 - All code-changing steps contain exact code or replacements.
 - `PYTHON_CANDIDATE`, `PYTHON_BIN`, `TMUXCUE_PYTHON`, release-local `python`,
   and version `0.4.3` are named consistently across tasks.
