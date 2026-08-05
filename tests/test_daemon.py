@@ -126,6 +126,54 @@ class DaemonTests(unittest.TestCase):
             "running",
         )
 
+    def test_fresh_idle_scan_supersedes_older_approval_hook(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        metadata = Metadata("codex", "model", "topic", "session")
+        row = PaneRow(
+            "%1", "s:0", "codex", "idle", "/tmp", "", "/dev/pts/1"
+        )
+        daemon.last_scan = now
+        daemon.runtime_states["s:0"] = "working"
+        daemon.runtime_event_times["s:0"] = now - 20
+
+        raw_state = daemon.raw_state("s:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "idle")
+        self.assertEqual(daemon.observation_time(row), now)
+        self.assertEqual(
+            daemon.resolve_state(
+                row,
+                raw_state,
+                None,
+                {
+                    "state": "approval",
+                    "event": "PermissionRequest",
+                    "timestamp": now - 5,
+                },
+                now,
+            ),
+            "done",
+        )
+
+        blocked = PaneRow(
+            "%2", "s:1", "codex", "blocked", "/tmp", "", "/dev/pts/2"
+        )
+        self.assertEqual(
+            daemon.resolve_state(
+                blocked,
+                daemon.raw_state("s:1", blocked, metadata, now),
+                None,
+                {
+                    "state": "approval",
+                    "event": "PermissionRequest",
+                    "timestamp": now - 5,
+                },
+                now,
+            ),
+            "approval",
+        )
+
     def test_turn_aborted_overrides_stale_running_ui_and_hook(self):
         daemon = IndicatorDaemon()
         row = PaneRow(

@@ -400,6 +400,11 @@ class IndicatorDaemon:
         if prompt_is_newer:
             return state
         if hook_state == "approval":
+            if (
+                isinstance(row, PaneRow)
+                and self.observation_time(row) >= hook_timestamp
+            ):
+                return state
             return "approval" if raw_state != "working" else state
         if hook_state == "running":
             if raw_state == "working":
