@@ -4,6 +4,22 @@ umask 077
 
 [ "$EUID" -ne 0 ] || { echo "Do not run TmuxCue as root." >&2; exit 1; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_BIN="${TMUXCUE_PYTHON:-$ROOT/python}"
+if [ ! -x "$PYTHON_BIN" ]; then
+    PYTHON_BIN="$(command -v python3 || true)"
+fi
+[ -n "$PYTHON_BIN" ] && [ -x "$PYTHON_BIN" ] || {
+    echo "TmuxCue requires Python 3.10 or newer to restore managed settings." >&2
+    exit 1
+}
+"$PYTHON_BIN" - <<'PY'
+import sys
+
+if sys.version_info < (3, 10):
+    raise SystemExit(
+        f"TmuxCue requires Python 3.10 or newer; found {sys.version.split()[0]}."
+    )
+PY
 BASE="$HOME/.local/share/tmuxcue"
 BIN_DIR="$HOME/.local/bin"
 SERVICE="$HOME/.config/systemd/user/tmuxcue.service"
@@ -12,15 +28,15 @@ TMUX_PID_BEFORE="$(pgrep -o -u "$(id -u)" tmux || true)"
 PANES_BEFORE="$(tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}:#{pane_pid}' 2>/dev/null | sort || true)"
 AI_BEFORE="$(ps -eo uid=,pid=,comm= | awk -v uid="$(id -u)" '$1 == uid && ($3 == "codex" || $3 == "claude" || $3 == "claude-code") { print $2 ":" $3 }' | sort)"
 
-PYTHONPATH="$ROOT/src" python3 -m tmuxcue.vscode uninstall
-PYTHONPATH="$ROOT/src" python3 -c 'from tmuxcue.settings import apply_title_mode; apply_title_mode("native")'
+PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -m tmuxcue.vscode uninstall
+PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -c 'from tmuxcue.settings import apply_title_mode; apply_title_mode("native")'
 systemctl --user disable --now tmuxcue.service >/dev/null 2>&1 || true
 rm -f "$SERVICE" "$BIN_DIR/tmuxcue" "$BIN_DIR/tmuxcue-hook" "$BIN_DIR/tmuxcue-service"
 rm -f "$HOME/.local/share/bash-completion/completions/tmuxcue" \
     "$HOME/.local/share/zsh/site-functions/_tmuxcue" \
     "$HOME/.config/fish/completions/tmuxcue.fish"
 systemctl --user daemon-reload
-python3 "$ROOT/scripts/configure.py" uninstall
+"$PYTHON_BIN" "$ROOT/scripts/configure.py" uninstall
 
 if tmux list-sessions >/dev/null 2>&1; then
     while IFS= read -r window; do

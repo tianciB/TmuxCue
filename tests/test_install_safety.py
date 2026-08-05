@@ -46,6 +46,31 @@ class InstallSafetyTests(unittest.TestCase):
         self.assertIn("tmuxcue.vscode install", scripts[0])
         self.assertIn("tmuxcue.vscode uninstall", scripts[2])
 
+    def test_installers_pin_the_validated_python_runtime(self):
+        install = (ROOT / "scripts/install.sh").read_text(encoding="utf-8")
+        uninstall = (ROOT / "scripts/uninstall.sh").read_text(encoding="utf-8")
+
+        self.assertIn("sys.version_info < (3, 10)", install)
+        self.assertIn('PYTHON_BIN="$("$PYTHON_CANDIDATE"', install)
+        self.assertIn('ln -s "$PYTHON_BIN" "$RELEASE/python"', install)
+        self.assertIn(
+            'export TMUXCUE_PYTHON="$HOME/.local/share/tmuxcue/current/python"',
+            install,
+        )
+        self.assertEqual(install.count('exec "$TMUXCUE_PYTHON"'), 3)
+        self.assertIn('"$BIN_DIR/tmuxcue" version >/dev/null', install)
+        self.assertIn("sleep 1", install)
+        self.assertNotIn("/usr/bin/python3", install)
+        self.assertNotIn('PYTHONPATH="$ROOT/src" python3', install)
+
+        self.assertIn(
+            'PYTHON_BIN="${TMUXCUE_PYTHON:-$ROOT/python}"',
+            uninstall,
+        )
+        self.assertIn("sys.version_info < (3, 10)", uninstall)
+        self.assertNotIn('PYTHONPATH="$ROOT/src" python3', uninstall)
+        self.assertNotIn('python3 "$ROOT/scripts/configure.py"', uninstall)
+
     def test_codex_hook_template_and_readme_match_minimum_trust_set(self):
         template = json.loads((ROOT / "hooks/codex-hooks.json.in").read_text())
         self.assertEqual(set(template), {"UserPromptSubmit", "PermissionRequest", "Stop"})
