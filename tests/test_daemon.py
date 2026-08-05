@@ -95,6 +95,37 @@ class DaemonTests(unittest.TestCase):
             "running",
         )
 
+    def test_fresh_working_scan_supersedes_older_approval_hook(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        row = PaneRow(
+            "%1", "s:0", "codex", "working", "/tmp", "", "/dev/pts/1"
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        daemon.last_scan = now
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("working", now - 20)
+        )
+
+        raw_state = daemon.raw_state("s:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "working")
+        self.assertEqual(daemon.observation_time(row), now)
+        self.assertEqual(
+            daemon.resolve_state(
+                row,
+                raw_state,
+                None,
+                {
+                    "state": "approval",
+                    "event": "PermissionRequest",
+                    "timestamp": now - 5,
+                },
+                now,
+            ),
+            "running",
+        )
+
     def test_turn_aborted_overrides_stale_running_ui_and_hook(self):
         daemon = IndicatorDaemon()
         row = PaneRow(
