@@ -78,7 +78,7 @@ Add this method to `InstallSafetyTests` after
 Run:
 
 ```bash
-PYTHONPATH=src /home/v-bitianci/anaconda3/bin/python3 \
+PYTHONPATH=src "$HOME/anaconda3/bin/python3" \
   -m unittest \
   tests.test_install_safety.InstallSafetyTests.test_installers_pin_the_validated_python_runtime \
   -v
@@ -190,7 +190,7 @@ systemctl --user is-active --quiet tmuxcue.service
 Run:
 
 ```bash
-PYTHONPATH=src /home/v-bitianci/anaconda3/bin/python3 \
+PYTHONPATH=src "$HOME/anaconda3/bin/python3" \
   -m unittest \
   tests.test_install_safety.InstallSafetyTests.test_installers_pin_the_validated_python_runtime \
   -v
@@ -252,7 +252,7 @@ and:
 Run:
 
 ```bash
-PYTHONPATH=src /home/v-bitianci/anaconda3/bin/python3 \
+PYTHONPATH=src "$HOME/anaconda3/bin/python3" \
   -m unittest tests.test_install_safety -v
 ```
 
@@ -308,7 +308,7 @@ self.assertIn("TmuxCue 0.4.3", output.getvalue())
 Run:
 
 ```bash
-PYTHONPATH=src /home/v-bitianci/anaconda3/bin/python3 \
+PYTHONPATH=src "$HOME/anaconda3/bin/python3" \
   -m unittest tests.test_cli.CliTests.test_version_and_help -v
 ```
 
@@ -335,7 +335,7 @@ version = "0.4.3"
 Run:
 
 ```bash
-PYTHONPATH=src /home/v-bitianci/anaconda3/bin/python3 \
+PYTHONPATH=src "$HOME/anaconda3/bin/python3" \
   -m unittest tests.test_cli.CliTests.test_version_and_help -v
 ```
 
@@ -364,7 +364,7 @@ git commit -m "chore: release version 0.4.3"
 Run:
 
 ```bash
-PYTHONPATH=src /home/v-bitianci/anaconda3/bin/python3 \
+PYTHONPATH=src "$HOME/anaconda3/bin/python3" \
   -m unittest discover -s tests -q
 ```
 
@@ -375,8 +375,8 @@ Expected: all tests pass with exit status `0`.
 Run:
 
 ```bash
-PYTHONPATH=src /home/v-bitianci/anaconda3/bin/python3 -m tmuxcue __check
-PYTHONPATH=src /home/v-bitianci/anaconda3/bin/python3 -m tmuxcue version
+PYTHONPATH=src "$HOME/anaconda3/bin/python3" -m tmuxcue __check
+PYTHONPATH=src "$HOME/anaconda3/bin/python3" -m tmuxcue version
 ```
 
 Expected:
@@ -399,8 +399,9 @@ git status --short --branch
 git log --oneline --decorate origin/main..HEAD
 ```
 
-Expected: a clean worktree and exactly the design, runtime fix, and version
-commits, plus this implementation-plan commit, ahead of `origin/main`.
+Expected: a clean worktree containing only the design, implementation plan,
+runtime fix, version bump, and any test-driven documentation cleanup ahead of
+`origin/main`.
 
 ### Task 6: Repair the Current Installation Without Disturbing Other Processes
 
@@ -496,7 +497,7 @@ Expected:
 
 - CLI output is `TmuxCue 0.4.3`.
 - The release-local `python` and service executable both resolve to
-  `/home/v-bitianci/anaconda3/bin/python3.12`.
+  `$HOME/anaconda3/bin/python3.12`.
 - The unit is `enabled` and `active`.
 - The journal contains no traceback, failed result, or restart loop after the
   recorded installation time.
@@ -535,7 +536,7 @@ git status --short --branch
 ```
 
 Expected: the ancestry check exits `0` and the worktree is clean. If
-`origin/main` advanced independently, rebase the four local commits onto
+`origin/main` advanced independently, rebase the local release commits onto
 `origin/main`, rerun Tasks 5 and 6, and only then continue.
 
 - [ ] **Step 2: Create the annotated release tag**
@@ -590,7 +591,7 @@ official portable GitHub CLI into `/tmp`:
 ```bash
 GH_VERSION="$(
   curl -fsSL https://api.github.com/repos/cli/cli/releases/latest \
-    | /home/v-bitianci/anaconda3/bin/python3 -c \
+    | "$HOME/anaconda3/bin/python3" -c \
         'import json, sys; print(json.load(sys.stdin)["tag_name"].removeprefix("v"))'
 )"
 GH_ARCHIVE="gh_${GH_VERSION}_linux_amd64.tar.gz"
