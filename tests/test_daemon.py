@@ -207,6 +207,32 @@ class DaemonTests(unittest.TestCase):
             "running",
         )
 
+    def test_runtime_event_before_process_start_is_ignored(self):
+        daemon = IndicatorDaemon()
+        daemon.last_scan = 110
+        row = PaneRow(
+            "%1",
+            "s:0",
+            "codex",
+            "working",
+            "/tmp",
+            "",
+            "/dev/pts/1",
+            123,
+            100,
+            "codex resume",
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("aborted", 90)
+        )
+
+        self.assertEqual(
+            daemon.raw_state("s:0", row, metadata, 110),
+            "working",
+        )
+        self.assertEqual(daemon.observation_time(row), 110)
+
     def test_last_agent_exit_clears_managed_tmux_values(self):
         daemon = IndicatorDaemon()
         daemon.last_scan = time.time()

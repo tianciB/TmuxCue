@@ -145,7 +145,8 @@ before/after equality for all recorded process identities.
 After a fresh scan, Mage Flow must report:
 
 - the user thread exposed by its open rollout FD;
-- runtime state `working`;
+- no stale `idle` or `aborted` runtime state from a different pre-process
+  thread;
 - visual state `running`;
 - a non-placeholder topic from the resumed thread.
 

@@ -216,6 +216,45 @@ class MetadataResolver:
         )
         return databases[0] if databases else None
 
+    def codex_open_session_ids(self, pid: int) -> set[str]:
+        if pid <= 0:
+            return set()
+        process = self.proc_root / str(pid)
+        try:
+            if process.stat().st_uid != self.uid:
+                return set()
+            entries = list((process / "fd").iterdir())
+        except OSError:
+            return set()
+        try:
+            codex_home = self.codex_home.resolve()
+        except OSError:
+            codex_home = self.codex_home
+
+        session_ids: set[str] = set()
+        for entry in entries:
+            try:
+                target = Path(
+                    os.readlink(entry).removesuffix(" (deleted)")
+                ).resolve()
+                relative = target.relative_to(codex_home)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            if not relative.parts:
+                continue
+            if relative.parts[0] == "sessions" and target.suffix == ".jsonl":
+                match = UUID_RE.search(target.name)
+            elif (
+                relative.parts[0] == "thread-writer-locks"
+                and target.suffix == ".lock"
+            ):
+                match = UUID_RE.fullmatch(target.stem)
+            else:
+                match = None
+            if match:
+                session_ids.add(match.group(0))
+        return session_ids
+
     def codex_metadata(
         self, cwd: str, process: ProcessInfo | None
     ) -> tuple[str, str, str]:
@@ -226,6 +265,7 @@ class MetadataResolver:
         started_ms = process[1] * 1000 if process else int(time.time() * 1000)
         match = UUID_RE.search(process[2]) if process else None
         resumed_id = match.group(0) if match else ""
+        open_session_ids = self.codex_open_session_ids(process[0] if process else 0)
 
         try:
             connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
@@ -251,8 +291,14 @@ class MetadataResolver:
         if not rows:
             return "", "", ""
         exact = next((row for row in rows if row["id"] == resumed_id), None)
+        open_threads = [row for row in rows if row["id"] in open_session_ids]
         if exact is not None:
             thread = exact
+        elif open_threads:
+            thread = max(
+                open_threads,
+                key=lambda row: row["updated_at_ms"] or 0,
+            )
         else:
             nearby = [
                 row for row in rows

@@ -10,6 +10,32 @@ from tmuxcue.core import Metadata
 from tmuxcue.metadata import MetadataResolver, discover_agent_processes
 
 
+def create_thread_database(path: Path, rows: list[tuple]) -> None:
+    connection = sqlite3.connect(path)
+    connection.execute(
+        """
+        create table threads (
+            id text primary key,
+            created_at_ms integer,
+            updated_at_ms integer,
+            model text,
+            title text,
+            name text,
+            cwd text,
+            archived integer,
+            thread_source text,
+            rollout_path text
+        )
+        """
+    )
+    connection.executemany(
+        "insert into threads values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    connection.commit()
+    connection.close()
+
+
 class ProcessDiscoveryTests(unittest.TestCase):
     def test_proc_scan_returns_only_owned_foreground_agents(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -70,6 +96,181 @@ class ProcessDiscoveryTests(unittest.TestCase):
             self.assertEqual(processes[("/dev/pts/1", "codex")][0], 101)
             self.assertGreaterEqual(processes[("/dev/pts/1", "codex")][1], 1000)
             self.assertIn("resume", processes[("/dev/pts/2", "claude")][2])
+
+
+class CodexMetadataTests(unittest.TestCase):
+    correct = "11111111-1111-1111-1111-111111111111"
+    wrong = "22222222-2222-2222-2222-222222222222"
+    subagent = "33333333-3333-3333-3333-333333333333"
+
+    def test_open_user_rollout_beats_nearby_created_thread(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            codex = home / ".codex"
+            proc = root / "proc"
+            fd = proc / "123/fd"
+            fd.mkdir(parents=True)
+            sessions = codex / "sessions/2026/08/19"
+            sessions.mkdir(parents=True)
+            correct_rollout = sessions / f"rollout-current-{self.correct}.jsonl"
+            subagent_rollout = sessions / f"rollout-child-{self.subagent}.jsonl"
+            correct_rollout.write_text("", encoding="utf-8")
+            subagent_rollout.write_text("", encoding="utf-8")
+            (fd / "40").symlink_to(correct_rollout)
+            (fd / "41").symlink_to(subagent_rollout)
+
+            create_thread_database(
+                codex / "state_1.sqlite",
+                [
+                    (
+                        self.correct,
+                        1_000,
+                        9_000,
+                        "model",
+                        "correct title",
+                        "correct topic",
+                        "/repo",
+                        0,
+                        "user",
+                        str(correct_rollout),
+                    ),
+                    (
+                        self.wrong,
+                        5_000,
+                        6_000,
+                        "model",
+                        "wrong title",
+                        "wrong topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/wrong.jsonl",
+                    ),
+                    (
+                        self.subagent,
+                        5_100,
+                        10_000,
+                        "model",
+                        "child title",
+                        "child topic",
+                        "/repo",
+                        0,
+                        "subagent",
+                        str(subagent_rollout),
+                    ),
+                ],
+            )
+            resolver = MetadataResolver(home=home, proc_root=proc)
+
+            model, topic, session_id = resolver.codex_metadata(
+                "/repo", (123, 5, "codex resume")
+            )
+
+            self.assertEqual(model, "model")
+            self.assertEqual(topic, "correct topic")
+            self.assertEqual(session_id, self.correct)
+
+    def test_rollout_outside_codex_home_is_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            codex = home / ".codex"
+            codex.mkdir(parents=True)
+            proc = root / "proc"
+            fd = proc / "123/fd"
+            fd.mkdir(parents=True)
+            outside = root / f"rollout-current-{self.correct}.jsonl"
+            outside.write_text("", encoding="utf-8")
+            (fd / "40").symlink_to(outside)
+            create_thread_database(
+                codex / "state_1.sqlite",
+                [
+                    (
+                        self.correct,
+                        1_000,
+                        9_000,
+                        "model",
+                        "correct title",
+                        "correct topic",
+                        "/repo",
+                        0,
+                        "user",
+                        str(outside),
+                    ),
+                    (
+                        self.wrong,
+                        5_000,
+                        6_000,
+                        "model",
+                        "wrong title",
+                        "wrong topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/wrong.jsonl",
+                    ),
+                ],
+            )
+            resolver = MetadataResolver(home=home, proc_root=proc)
+
+            _, topic, session_id = resolver.codex_metadata(
+                "/repo", (123, 5, "codex resume")
+            )
+
+            self.assertEqual(topic, "wrong topic")
+            self.assertEqual(session_id, self.wrong)
+
+    def test_open_writer_lock_identifies_user_thread(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            codex = home / ".codex"
+            locks = codex / "thread-writer-locks"
+            locks.mkdir(parents=True)
+            proc = root / "proc"
+            fd = proc / "123/fd"
+            fd.mkdir(parents=True)
+            lock = locks / f"{self.correct}.lock"
+            lock.write_text("", encoding="utf-8")
+            (fd / "40").symlink_to(lock)
+            create_thread_database(
+                codex / "state_1.sqlite",
+                [
+                    (
+                        self.correct,
+                        1_000,
+                        9_000,
+                        "model",
+                        "correct title",
+                        "correct topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/correct.jsonl",
+                    ),
+                    (
+                        self.wrong,
+                        5_000,
+                        6_000,
+                        "model",
+                        "wrong title",
+                        "wrong topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/wrong.jsonl",
+                    ),
+                ],
+            )
+            resolver = MetadataResolver(home=home, proc_root=proc)
+
+            _, topic, session_id = resolver.codex_metadata(
+                "/repo", (123, 5, "codex resume")
+            )
+
+            self.assertEqual(topic, "correct topic")
+            self.assertEqual(session_id, self.correct)
 
 
 class RuntimeStateTests(unittest.TestCase):

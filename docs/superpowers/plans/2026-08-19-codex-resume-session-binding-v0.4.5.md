@@ -486,7 +486,7 @@ print(
     f"raw={raw} resolved={resolved} topic={metadata.topic!r}"
 )
 assert metadata.session_id in open_ids
-assert runtime == "working"
+assert runtime not in {"idle", "aborted"}
 assert raw == "working"
 assert resolved == "running"
 assert metadata.topic and metadata.topic != "c"
@@ -497,7 +497,7 @@ Expected:
 
 ```text
 session=<open user rollout UUID>
-runtime=working
+runtime=<working or unavailable, but not stale idle/aborted>
 raw=working
 resolved=running
 ```

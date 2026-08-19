@@ -325,6 +325,16 @@ class IndicatorDaemon:
         runtime_state = self.runtime_states.get(target)
         event_time = self.runtime_event_times.get(target, 0.0)
         if runtime_state is not None:
+            if (
+                isinstance(row, PaneRow)
+                and row.state == "working"
+                and runtime_state in {"idle", "aborted"}
+                and event_time > 0
+                and row.started_at > 0
+                and event_time < row.started_at
+            ):
+                self.raw_observation_times[target] = self.last_scan
+                return "working"
             observation_time = event_time or self.runtime_times.get(target, now)
             if (
                 runtime_state == "working"
