@@ -33,6 +33,16 @@ class DetectorTests(unittest.TestCase):
     def test_braille_title_is_working(self):
         self.assertEqual(self.detector.detect_state("codex", "⠙ Codex", ""), "working")
 
+    def test_native_title_subject_strips_spinner_and_repository(self):
+        self.assertEqual(
+            self.detector.title_subject("⠙ Exact thread name | repository"),
+            "Exact thread name",
+        )
+        self.assertEqual(
+            self.detector.title_subject("Exact thread name | repository"),
+            "Exact thread name",
+        )
+
     def test_codex_approval_prompt_is_blocked(self):
         screen = "Press Enter to confirm or Esc to cancel"
         self.assertEqual(self.detector.detect_state("codex", "Codex", screen), "blocked")

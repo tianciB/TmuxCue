@@ -197,7 +197,9 @@ class MetadataResolver:
             process = (row.pid, row.started_at, row.cmdline)
 
         if row.agent == "codex":
-            model, topic, session_id = self.codex_metadata(cwd, process)
+            model, topic, session_id = self.codex_metadata(
+                cwd, process, row.subject
+            )
         elif row.agent == "claude":
             model, topic, session_id = self.claude_metadata(
                 cwd, process[0] if process else None
@@ -255,8 +257,66 @@ class MetadataResolver:
                 session_ids.add(match.group(0))
         return session_ids
 
+    def codex_logged_session_id(self, pid: int, started_at: int) -> str:
+        if pid <= 0:
+            return ""
+        process = self.proc_root / str(pid)
+        try:
+            if process.stat().st_uid != self.uid:
+                return ""
+        except OSError:
+            return ""
+
+        database = self.codex_home / "logs_2.sqlite"
+        if not database.is_file():
+            return ""
+
+        connection: sqlite3.Connection | None = None
+        try:
+            connection = sqlite3.connect(
+                f"file:{database}?mode=ro",
+                uri=True,
+                timeout=0.05,
+            )
+            process_row = connection.execute(
+                """
+                select process_uuid
+                  from logs
+                 where process_uuid glob ?
+                   and ts >= ?
+                 order by ts desc, ts_nanos desc, id desc
+                 limit 1
+                """,
+                (f"pid:{pid}:*", max(0, started_at)),
+            ).fetchone()
+            if not process_row or not process_row[0]:
+                return ""
+            thread_row = connection.execute(
+                """
+                select thread_id
+                  from logs
+                 where process_uuid=?
+                   and thread_id is not null
+                   and thread_id != ''
+                 order by ts desc, ts_nanos desc, id desc
+                 limit 1
+                """,
+                (process_row[0],),
+            ).fetchone()
+        except sqlite3.Error:
+            return ""
+        finally:
+            if connection is not None:
+                try:
+                    connection.close()
+                except sqlite3.Error:
+                    pass
+
+        session_id = str(thread_row[0] or "") if thread_row else ""
+        return session_id if UUID_RE.fullmatch(session_id) else ""
+
     def codex_metadata(
-        self, cwd: str, process: ProcessInfo | None
+        self, cwd: str, process: ProcessInfo | None, subject: str = ""
     ) -> tuple[str, str, str]:
         database = self.codex_database()
         if database is None:
@@ -266,6 +326,11 @@ class MetadataResolver:
         match = UUID_RE.search(process[2]) if process else None
         resumed_id = match.group(0) if match else ""
         open_session_ids = self.codex_open_session_ids(process[0] if process else 0)
+        logged_id = (
+            self.codex_logged_session_id(process[0], process[1])
+            if process
+            else ""
+        )
 
         try:
             connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
@@ -292,6 +357,12 @@ class MetadataResolver:
             return "", "", ""
         exact = next((row for row in rows if row["id"] == resumed_id), None)
         open_threads = [row for row in rows if row["id"] in open_session_ids]
+        logged = next((row for row in rows if row["id"] == logged_id), None)
+        named = [
+            row
+            for row in rows
+            if subject and (row["name"] or "").strip() == subject.strip()
+        ]
         if exact is not None:
             thread = exact
         elif open_threads:
@@ -299,6 +370,10 @@ class MetadataResolver:
                 open_threads,
                 key=lambda row: row["updated_at_ms"] or 0,
             )
+        elif logged is not None:
+            thread = logged
+        elif len(named) == 1:
+            thread = named[0]
         else:
             nearby = [
                 row for row in rows

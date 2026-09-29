@@ -99,7 +99,16 @@ class TmuxDetector:
             process = self.processes.get((tty, agent))
             pid, started_at, cmdline = process or (0, 0, "")
             row = PaneRow(
-                pane, window, agent, state, cwd, "", tty, pid, started_at, cmdline
+                pane,
+                window,
+                agent,
+                state,
+                cwd,
+                self.title_subject(title),
+                tty,
+                pid,
+                started_at,
+                cmdline,
             )
             previous = selected.get(window)
             if previous is None or PRIORITY.get(state, 0) > PRIORITY.get(previous.state, 0):
@@ -126,6 +135,13 @@ class TmuxDetector:
     def title_is_working(title: str) -> bool:
         stripped = title.lstrip()
         return bool(stripped) and BRAILLE_START <= ord(stripped[0]) <= BRAILLE_END
+
+    @classmethod
+    def title_subject(cls, title: str) -> str:
+        value = (title or "").strip()
+        if cls.title_is_working(value):
+            value = value[1:].lstrip()
+        return value.rsplit(" | ", 1)[0].strip()
 
     @staticmethod
     def matches_any(patterns: tuple[str, ...], text: str) -> bool:

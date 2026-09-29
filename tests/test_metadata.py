@@ -36,6 +36,33 @@ def create_thread_database(path: Path, rows: list[tuple]) -> None:
     connection.close()
 
 
+def create_log_database(
+    path: Path, rows: list[tuple[int, int, str | None, str]]
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path)
+    connection.execute(
+        """
+        create table logs (
+            id integer primary key autoincrement,
+            ts integer not null,
+            ts_nanos integer not null,
+            thread_id text,
+            process_uuid text not null
+        )
+        """
+    )
+    connection.executemany(
+        """
+        insert into logs (ts, ts_nanos, thread_id, process_uuid)
+        values (?, ?, ?, ?)
+        """,
+        rows,
+    )
+    connection.commit()
+    connection.close()
+
+
 class ProcessDiscoveryTests(unittest.TestCase):
     def test_proc_scan_returns_only_owned_foreground_agents(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -161,6 +188,10 @@ class CodexMetadataTests(unittest.TestCase):
                     ),
                 ],
             )
+            create_log_database(
+                codex / "logs_2.sqlite",
+                [(6, 0, self.wrong, "pid:123:current")],
+            )
             resolver = MetadataResolver(home=home, proc_root=proc)
 
             model, topic, session_id = resolver.codex_metadata(
@@ -212,6 +243,264 @@ class CodexMetadataTests(unittest.TestCase):
                     ),
                 ],
             )
+            resolver = MetadataResolver(home=home, proc_root=proc)
+
+            _, topic, session_id = resolver.codex_metadata(
+                "/repo", (123, 5, "codex resume")
+            )
+
+            self.assertEqual(topic, "wrong topic")
+            self.assertEqual(session_id, self.wrong)
+
+    def test_process_log_binds_same_cwd_resume_to_user_thread(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            codex = home / ".codex"
+            codex.mkdir(parents=True)
+            proc = root / "proc"
+            (proc / "123").mkdir(parents=True)
+            create_thread_database(
+                codex / "state_1.sqlite",
+                [
+                    (
+                        self.correct,
+                        1_000,
+                        6_000,
+                        "model",
+                        "correct title",
+                        "correct topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/correct.jsonl",
+                    ),
+                    (
+                        self.wrong,
+                        5_000,
+                        9_000,
+                        "model",
+                        "wrong title",
+                        "wrong topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/wrong.jsonl",
+                    ),
+                ],
+            )
+            create_log_database(
+                codex / "logs_2.sqlite",
+                [
+                    (5, 0, None, "pid:123:current"),
+                    (6, 0, self.correct, "pid:123:current"),
+                    (7, 0, self.wrong, "pid:999:other"),
+                ],
+            )
+            resolver = MetadataResolver(home=home, proc_root=proc)
+
+            model, topic, session_id = resolver.codex_metadata(
+                "/repo", (123, 5, "codex resume")
+            )
+
+            self.assertEqual(model, "model")
+            self.assertEqual(topic, "correct topic")
+            self.assertEqual(session_id, self.correct)
+
+    def test_process_log_does_not_reuse_an_old_pid_incarnation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            codex = home / ".codex"
+            codex.mkdir(parents=True)
+            proc = root / "proc"
+            (proc / "123").mkdir(parents=True)
+            create_log_database(
+                codex / "logs_2.sqlite",
+                [
+                    (90, 0, self.correct, "pid:123:old"),
+                    (100, 0, None, "pid:123:current"),
+                ],
+            )
+            resolver = MetadataResolver(home=home, proc_root=proc)
+
+            self.assertEqual(resolver.codex_logged_session_id(123, 100), "")
+
+    def test_process_log_thread_must_be_a_user_candidate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            codex = home / ".codex"
+            codex.mkdir(parents=True)
+            proc = root / "proc"
+            (proc / "123").mkdir(parents=True)
+            create_thread_database(
+                codex / "state_1.sqlite",
+                [
+                    (
+                        self.wrong,
+                        5_000,
+                        9_000,
+                        "model",
+                        "wrong title",
+                        "wrong topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/wrong.jsonl",
+                    ),
+                    (
+                        self.subagent,
+                        1_000,
+                        10_000,
+                        "model",
+                        "child title",
+                        "child topic",
+                        "/repo",
+                        0,
+                        "subagent",
+                        "/tmp/child.jsonl",
+                    ),
+                ],
+            )
+            create_log_database(
+                codex / "logs_2.sqlite",
+                [(6, 0, self.subagent, "pid:123:current")],
+            )
+            resolver = MetadataResolver(home=home, proc_root=proc)
+
+            _, topic, session_id = resolver.codex_metadata(
+                "/repo", (123, 5, "codex resume")
+            )
+
+            self.assertEqual(topic, "wrong topic")
+            self.assertEqual(session_id, self.wrong)
+
+    def test_native_title_hint_binds_after_process_log_rotation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            codex = home / ".codex"
+            codex.mkdir(parents=True)
+            proc = root / "proc"
+            (proc / "123").mkdir(parents=True)
+            create_thread_database(
+                codex / "state_1.sqlite",
+                [
+                    (
+                        self.correct,
+                        1_000,
+                        6_000,
+                        "model",
+                        "correct title",
+                        "correct topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/correct.jsonl",
+                    ),
+                    (
+                        self.wrong,
+                        5_000,
+                        9_000,
+                        "model",
+                        "wrong title",
+                        "wrong topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/wrong.jsonl",
+                    ),
+                ],
+            )
+            create_log_database(
+                codex / "logs_2.sqlite",
+                [(6, 0, None, "pid:123:current")],
+            )
+            resolver = MetadataResolver(home=home, proc_root=proc)
+
+            _, topic, session_id = resolver.codex_metadata(
+                "/repo",
+                (123, 5, "codex resume"),
+                "correct topic",
+            )
+
+            self.assertEqual(topic, "correct topic")
+            self.assertEqual(session_id, self.correct)
+
+    def test_duplicate_native_title_hint_uses_existing_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            codex = home / ".codex"
+            codex.mkdir(parents=True)
+            proc = root / "proc"
+            (proc / "123").mkdir(parents=True)
+            create_thread_database(
+                codex / "state_1.sqlite",
+                [
+                    (
+                        self.correct,
+                        1_000,
+                        6_000,
+                        "model",
+                        "correct title",
+                        "shared topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/correct.jsonl",
+                    ),
+                    (
+                        self.wrong,
+                        5_000,
+                        9_000,
+                        "model",
+                        "wrong title",
+                        "shared topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/wrong.jsonl",
+                    ),
+                ],
+            )
+            resolver = MetadataResolver(home=home, proc_root=proc)
+
+            _, _, session_id = resolver.codex_metadata(
+                "/repo",
+                (123, 5, "codex resume"),
+                "shared topic",
+            )
+
+            self.assertEqual(session_id, self.wrong)
+
+    def test_malformed_process_log_database_uses_existing_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            codex = home / ".codex"
+            codex.mkdir(parents=True)
+            proc = root / "proc"
+            (proc / "123").mkdir(parents=True)
+            create_thread_database(
+                codex / "state_1.sqlite",
+                [
+                    (
+                        self.wrong,
+                        5_000,
+                        9_000,
+                        "model",
+                        "wrong title",
+                        "wrong topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/wrong.jsonl",
+                    ),
+                ],
+            )
+            (codex / "logs_2.sqlite").write_text("not sqlite", encoding="utf-8")
             resolver = MetadataResolver(home=home, proc_root=proc)
 
             _, topic, session_id = resolver.codex_metadata(
