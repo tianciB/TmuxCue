@@ -802,9 +802,9 @@ Expected: no output.
 Run:
 
 ```bash
-SAFETY=/tmp/tmuxcue-v046-safety
-rm -rf "$SAFETY"
-mkdir -m 700 "$SAFETY"
+SAFETY="$(mktemp -d /tmp/tmuxcue-v046-safety.XXXXXX)"
+chmod 700 "$SAFETY"
+printf '%s\n' "$SAFETY" > /tmp/tmuxcue-v046-safety.path
 (pgrep -o -u "$(id -u)" tmux || true) > "$SAFETY/tmux.before"
 tmux list-panes -a \
   -F '#{session_name}:#{window_index}.#{pane_index}:#{pane_pid}' \
@@ -839,7 +839,7 @@ pass.
 Run:
 
 ```bash
-SAFETY=/tmp/tmuxcue-v046-safety
+SAFETY="$(cat /tmp/tmuxcue-v046-safety.path)"
 (pgrep -o -u "$(id -u)" tmux || true) > "$SAFETY/tmux.after"
 tmux list-panes -a \
   -F '#{session_name}:#{window_index}.#{pane_index}:#{pane_pid}' \

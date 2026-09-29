@@ -1,8 +1,8 @@
 # Codex Live Working State and PID Session Binding Design
 
-**Date:** 2026-09-29  
-**Status:** Approved for specification  
-**Target release:** next patch release after v0.4.5
+**Date:** 2026-09-29
+**Status:** Implemented and locally deployed
+**Target release:** v0.4.6
 
 ## Problem
 
