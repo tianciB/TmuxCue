@@ -330,11 +330,13 @@ class IndicatorDaemon:
                 and row.state == "working"
                 and runtime_state in {"idle", "aborted"}
                 and event_time > 0
-                and row.started_at > 0
-                and event_time < row.started_at
             ):
-                self.raw_observation_times[target] = self.last_scan
-                return "working"
+                if row.started_at > 0 and event_time < row.started_at:
+                    self.raw_observation_times[target] = self.last_scan
+                    return "working"
+                if runtime_state == "idle" and self.last_scan > event_time:
+                    self.raw_observation_times[target] = self.last_scan
+                    return "working"
             observation_time = event_time or self.runtime_times.get(target, now)
             if (
                 runtime_state == "working"
@@ -397,6 +399,7 @@ class IndicatorDaemon:
             and runtime_state in {"idle", "aborted"}
             and runtime_event_time > 0
             and runtime_event_time >= event_timestamp
+            and runtime_event_time >= self.observation_time(row)
         ):
             return "done"
 

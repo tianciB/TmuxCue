@@ -659,6 +659,24 @@ guard with:
 
 Do not add the newer-scan exception for `aborted`.
 
+In `IndicatorDaemon.resolve_state()`, require the runtime completion to be at
+least as new as the selected raw observation:
+
+```python
+        if (
+            raw_state != "blocked"
+            and runtime_state in {"idle", "aborted"}
+            and runtime_event_time > 0
+            and runtime_event_time >= event_timestamp
+            and runtime_event_time >= self.observation_time(row)
+        ):
+            return "done"
+```
+
+This preserves runtime completion for cached scans and terminals while
+preventing the older completion from being reapplied after `raw_state()` has
+selected a newer live pane observation.
+
 - [ ] **Step 4: Run daemon and detector state tests**
 
 Run:
@@ -678,7 +696,10 @@ Expected: all state, approval, abort, prompt-grace, and detector tests pass.
 Run:
 
 ```bash
-git add src/tmuxcue/service.py tests/test_daemon.py
+git add \
+  docs/superpowers/plans/2026-09-29-codex-live-working-session-binding-v0.4.6.md \
+  src/tmuxcue/service.py \
+  tests/test_daemon.py
 git commit -m "fix: keep newer live Codex work running"
 ```
 

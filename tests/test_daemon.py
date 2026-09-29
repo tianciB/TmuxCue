@@ -126,6 +126,79 @@ class DaemonTests(unittest.TestCase):
             "running",
         )
 
+    def test_fresh_working_scan_supersedes_older_task_complete_and_stop(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        completed_at = now - 5
+        daemon.last_scan = now
+        row = PaneRow(
+            "%1",
+            "s:0",
+            "codex",
+            "working",
+            "/tmp",
+            "",
+            "/dev/pts/1",
+            123,
+            int(now - 100),
+            "codex resume",
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("idle", completed_at)
+        )
+
+        raw_state = daemon.raw_state("s:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "working")
+        self.assertEqual(daemon.observation_time(row), now)
+        self.assertEqual(
+            daemon.resolve_state(
+                row,
+                raw_state,
+                None,
+                {"state": "done", "timestamp": completed_at},
+                now,
+            ),
+            "running",
+        )
+
+    def test_newer_task_complete_still_beats_a_cached_working_scan(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        completed_at = now - 1
+        daemon.last_scan = now - 5
+        row = PaneRow(
+            "%1",
+            "s:0",
+            "codex",
+            "working",
+            "/tmp",
+            "",
+            "/dev/pts/1",
+            123,
+            int(now - 100),
+            "codex resume",
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("idle", completed_at)
+        )
+
+        raw_state = daemon.raw_state("s:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "idle")
+        self.assertEqual(
+            daemon.resolve_state(
+                row,
+                raw_state,
+                None,
+                {"state": "done", "timestamp": completed_at},
+                now,
+            ),
+            "done",
+        )
+
     def test_fresh_idle_scan_supersedes_older_approval_hook(self):
         daemon = IndicatorDaemon()
         now = time.time()
@@ -176,15 +249,17 @@ class DaemonTests(unittest.TestCase):
 
     def test_turn_aborted_overrides_stale_running_ui_and_hook(self):
         daemon = IndicatorDaemon()
+        now = time.time()
+        daemon.last_scan = now
         row = PaneRow(
             "%1", "s:0", "codex", "working", "/tmp", "", "/dev/pts/1", 123, 1, "codex"
         )
         metadata = Metadata("codex", "model", "topic", "session")
-        aborted_at = time.time() - 1
+        aborted_at = now - 1
         daemon.metadata_resolver.runtime_snapshot = Mock(
             return_value=("aborted", aborted_at)
         )
-        raw_state = daemon.raw_state("s:0", row, metadata, time.time())
+        raw_state = daemon.raw_state("s:0", row, metadata, now)
         self.assertEqual(raw_state, "done")
         self.assertEqual(
             daemon.resolve_state(
@@ -192,7 +267,7 @@ class DaemonTests(unittest.TestCase):
                 raw_state,
                 {"at": aborted_at - 5, "saw_working": False},
                 {"state": "running", "timestamp": aborted_at - 5},
-                time.time(),
+                now,
             ),
             "done",
         )
@@ -202,7 +277,7 @@ class DaemonTests(unittest.TestCase):
                 raw_state,
                 None,
                 {"state": "running", "timestamp": aborted_at + 0.5},
-                time.time(),
+                now,
             ),
             "running",
         )
