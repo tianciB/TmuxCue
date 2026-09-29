@@ -4,7 +4,7 @@
 
 **Goal:** Bind each resumed Codex process to its own user thread and keep a pane running when a newer live tmux scan still shows explicit work.
 
-**Architecture:** `MetadataResolver` will use the Codex process PID and start time to identify the current `process_uuid` in `logs_2.sqlite`, then accept its latest thread only when that thread is already in the same-cwd top-level user candidate set. `IndicatorDaemon` will treat a newer tmux `working` scan as stronger than an older runtime `task_complete`, while retaining authoritative abort and approval behavior.
+**Architecture:** `MetadataResolver` will use the Codex process PID and start time to identify the current `process_uuid` in `logs_2.sqlite`, then accept its latest thread only when that thread is already in the same-cwd top-level user candidate set. If Codex has rotated away that process's thread-bearing log row, `TmuxDetector` will provide an exact native-title thread-name hint that is accepted only when it uniquely matches the same candidate set. `IndicatorDaemon` will treat a newer tmux `working` scan as stronger than an older runtime `task_complete`, while retaining authoritative abort and approval behavior.
 
 **Tech Stack:** Python 3.10+, SQLite read-only URIs, `/proc`, Python `unittest`, Bash, tmux, systemd user services.
 
@@ -16,22 +16,26 @@
 - Use read-only process, Codex log database, thread database, and rollout access.
 - Accept PID-log thread IDs only from the same cwd, unarchived, top-level user candidate set.
 - Keep explicit command-line IDs and open rollout/writer-lock evidence ahead of PID-log evidence.
+- Accept native-title evidence only as a unique exact match after removing the spinner and repository suffix.
 - Keep runtime `turn_aborted` authoritative over a residual working pane.
 - Add no dependency outside the Python standard library.
 - Publish the complete fix as version `0.4.6`.
 
 ---
 
-### Task 1: Bind Codex Processes Through Their Log Process Identity
+### Task 1: Bind Codex Processes Through Process Logs and Native Titles
 
 **Files:**
 - Modify: `tests/test_metadata.py:13-276`
+- Modify: `tests/test_detector.py:33-61`
 - Modify: `src/tmuxcue/metadata.py:211-324`
+- Modify: `src/tmuxcue/detector.py:61-103`
 
 **Interfaces:**
 - Consumes: `ProcessInfo = tuple[int, int, str]`, `MetadataResolver.codex_home`, `MetadataResolver.proc_root`, and the existing same-cwd user-thread query.
 - Produces: `MetadataResolver.codex_logged_session_id(pid: int, started_at: int) -> str`.
-- Produces: selection order `command-line UUID -> open rollout/lock -> PID-log thread -> existing heuristics`.
+- Produces: `TmuxDetector.title_subject(title: str) -> str`.
+- Produces: selection order `command-line UUID -> open rollout/lock -> PID-log thread -> unique native-title name -> existing heuristics`.
 
 - [ ] **Step 1: Add a reusable Codex log database fixture**
 
@@ -240,6 +244,76 @@ the state database so log evidence points at the wrong user thread:
             )
 ```
 
+Add this log-rotation fallback test to `CodexMetadataTests`:
+
+```python
+    def test_native_title_hint_binds_after_process_log_rotation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            codex = home / ".codex"
+            codex.mkdir(parents=True)
+            proc = root / "proc"
+            (proc / "123").mkdir(parents=True)
+            create_thread_database(
+                codex / "state_1.sqlite",
+                [
+                    (
+                        self.correct,
+                        1_000,
+                        6_000,
+                        "model",
+                        "correct title",
+                        "correct topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/correct.jsonl",
+                    ),
+                    (
+                        self.wrong,
+                        5_000,
+                        9_000,
+                        "model",
+                        "wrong title",
+                        "wrong topic",
+                        "/repo",
+                        0,
+                        "user",
+                        "/tmp/wrong.jsonl",
+                    ),
+                ],
+            )
+            create_log_database(
+                codex / "logs_2.sqlite",
+                [(6, 0, None, "pid:123:current")],
+            )
+            resolver = MetadataResolver(home=home, proc_root=proc)
+
+            _, topic, session_id = resolver.codex_metadata(
+                "/repo",
+                (123, 5, "codex resume"),
+                "correct topic",
+            )
+
+            self.assertEqual(topic, "correct topic")
+            self.assertEqual(session_id, self.correct)
+```
+
+Add this detector test to `tests/test_detector.py`:
+
+```python
+    def test_native_title_subject_strips_spinner_and_repository(self):
+        self.assertEqual(
+            self.detector.title_subject("⠙ Exact thread name | repository"),
+            "Exact thread name",
+        )
+        self.assertEqual(
+            self.detector.title_subject("Exact thread name | repository"),
+            "Exact thread name",
+        )
+```
+
 - [ ] **Step 3: Run the focused metadata tests and verify the new behavior fails**
 
 Run:
@@ -248,11 +322,12 @@ Run:
 PYTHONPATH=src:tests python -m unittest \
   test_metadata.CodexMetadataTests.test_process_log_binds_same_cwd_resume_to_user_thread \
   test_metadata.CodexMetadataTests.test_process_log_does_not_reuse_an_old_pid_incarnation \
+  test_metadata.CodexMetadataTests.test_native_title_hint_binds_after_process_log_rotation \
   -v
 ```
 
-Expected: `ERROR` because `codex_logged_session_id` does not exist, or `FAIL`
-because the same-cwd heuristic selects `self.wrong` instead of `self.correct`.
+Expected: `ERROR` because the new interfaces do not exist, or `FAIL` because
+the same-cwd heuristic selects `self.wrong` instead of `self.correct`.
 
 - [ ] **Step 4: Implement read-only PID-log session discovery**
 
@@ -323,10 +398,56 @@ The first query identifies the current process incarnation rather than
 trusting every historical row with a reused numeric PID. The second query
 then follows only that exact `process_uuid`.
 
-- [ ] **Step 5: Insert PID-log evidence into the existing selection order**
+- [ ] **Step 5: Extract the exact native thread-name hint**
 
-In `codex_metadata()`, calculate the logged ID beside the existing command
-line and open-file evidence:
+Add this method beside `title_is_working()` in `src/tmuxcue/detector.py`:
+
+```python
+    @classmethod
+    def title_subject(cls, title: str) -> str:
+        value = (title or "").strip()
+        if cls.title_is_working(value):
+            value = value[1:].lstrip()
+        return value.rsplit(" | ", 1)[0].strip()
+```
+
+Change the `PaneRow` construction in `scan()` from an empty subject to:
+
+```python
+            row = PaneRow(
+                pane,
+                window,
+                agent,
+                state,
+                cwd,
+                self.title_subject(title),
+                tty,
+                pid,
+                started_at,
+                cmdline,
+            )
+```
+
+- [ ] **Step 6: Insert exact process and title evidence into selection**
+
+Change the `codex_metadata()` signature to:
+
+```python
+    def codex_metadata(
+        self, cwd: str, process: ProcessInfo | None, subject: str = ""
+    ) -> tuple[str, str, str]:
+```
+
+Pass the pane subject from `resolve()`:
+
+```python
+            model, topic, session_id = self.codex_metadata(
+                cwd, process, row.subject
+            )
+```
+
+Calculate the logged ID beside the existing command-line and open-file
+evidence:
 
 ```python
         logged_id = (
@@ -340,9 +461,15 @@ After building `rows`, identify the candidate:
 
 ```python
         logged = next((row for row in rows if row["id"] == logged_id), None)
+        named = [
+            row
+            for row in rows
+            if subject and (row["name"] or "").strip() == subject.strip()
+        ]
 ```
 
-Keep the existing explicit and open-thread branches, then add the new branch:
+Keep the existing explicit and open-thread branches, then add the two new
+branches:
 
 ```python
         if exact is not None:
@@ -354,6 +481,8 @@ Keep the existing explicit and open-thread branches, then add the new branch:
             )
         elif logged is not None:
             thread = logged
+        elif len(named) == 1:
+            thread = named[0]
         else:
             nearby = [
                 row for row in rows
@@ -361,23 +490,28 @@ Keep the existing explicit and open-thread branches, then add the new branch:
             ]
 ```
 
-- [ ] **Step 6: Run all metadata tests**
+- [ ] **Step 7: Run metadata and detector tests**
 
 Run:
 
 ```bash
-PYTHONPATH=src:tests python -m unittest test_metadata -v
+PYTHONPATH=src:tests python -m unittest test_metadata test_detector -v
 ```
 
 Expected: all metadata tests pass, including open-rollout precedence, PID
-incarnation isolation, candidate validation, and malformed-log fallback.
+incarnation isolation, candidate validation, malformed-log fallback, and
+native-title recovery after log rotation.
 
-- [ ] **Step 7: Commit the metadata binding fix**
+- [ ] **Step 8: Commit the metadata binding fix**
 
 Run:
 
 ```bash
-git add src/tmuxcue/metadata.py tests/test_metadata.py
+git add \
+  src/tmuxcue/detector.py \
+  src/tmuxcue/metadata.py \
+  tests/test_detector.py \
+  tests/test_metadata.py
 git commit -m "fix: bind Codex panes through process logs"
 ```
 
@@ -796,7 +930,8 @@ verification.
 ## Self-Review
 
 - Task 1 covers exact same-cwd PID binding, PID reuse, other-PID isolation,
-  candidate validation, malformed-log fallback, and open-file precedence.
+  candidate validation, malformed-log fallback, open-file precedence, and
+  exact native-title recovery after process-log rotation.
 - Task 2 covers newer live work, newer completion, abort authority, approval
   regressions, and detector regressions.
 - Task 3 publishes one consistent public version and runs the complete test

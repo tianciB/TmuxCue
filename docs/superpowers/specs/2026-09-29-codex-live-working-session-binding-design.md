@@ -25,6 +25,10 @@ The live `codex-1` incident exposed two coupled causes:
 Codex's local `logs_2.sqlite` records a process identity in the form
 `pid:<PID>:<UUID>` together with the thread ID handled by that process. In the
 observed incident it correctly distinguishes all affected Codex panes.
+However, Codex rotates per-process log rows, so a long-running TUI can retain
+its process identity after the older row containing `thread_id` has expired.
+The native tmux pane title still carries the exact user-assigned thread name
+in that case.
 
 ## Goals
 
@@ -34,6 +38,7 @@ observed incident it correctly distinguishes all affected Codex panes.
   working evidence.
 - Bind resumed Codex processes in the same working directory to their actual
   top-level user threads.
+- Retain exact same-cwd binding after PID-log thread rows rotate away.
 - Preserve existing behavior for approvals, explicit aborts, direct session
   IDs, open rollout files, open writer locks, and safe fallback behavior.
 - Deploy without sending input or signals to Codex, tmux panes, Docker
@@ -71,8 +76,11 @@ The Codex thread selection order becomes:
 2. A user thread whose rollout JSONL or thread-writer lock is open by the
    process.
 3. A user thread associated with the process PID in `logs_2.sqlite`.
-4. A thread created close to the process start time.
-5. The existing eligible-most-recent cwd fallback.
+4. A user thread whose `name` uniquely and exactly matches the native pane
+   title after removing one leading braille spinner and one trailing
+   ` | repository` suffix.
+5. A thread created close to the process start time.
+6. The existing eligible-most-recent cwd fallback.
 
 An absent database, missing table, schema mismatch, locked database, invalid
 thread ID, or any SQLite/read error produces no PID binding and falls through
@@ -81,6 +89,11 @@ change the agent process.
 
 The open-file binding remains ahead of log binding because it is already an
 exact, direct association and requires no additional database query.
+
+The native-title match is accepted only when exactly one existing candidate
+row has that name. Empty, generic, truncated, or duplicate titles do not
+override the existing heuristics. Direct-terminal rows without a native title
+continue through the remaining selection order unchanged.
 
 ### 2. Newer live working evidence wins over completed runtime state
 
@@ -123,12 +136,13 @@ selection. It must not add any use of:
 For each detected Codex pane:
 
 1. Discover the foreground Codex PID from the pane TTY.
-2. Resolve metadata using command-line, open-file, PID-log, then existing
-   heuristic binding.
-3. Read the bound thread's runtime snapshot.
-4. Compare runtime event time with the latest tmux scan time.
-5. Merge the resulting observation with prompt and hook events.
-6. Update only the TmuxCue tmux window options.
+2. Extract an exact thread-name hint from the native pane title.
+3. Resolve metadata using command-line, open-file, PID-log, unique native
+   title, then existing heuristic binding.
+4. Read the bound thread's runtime snapshot.
+5. Compare runtime event time with the latest tmux scan time.
+6. Merge the resulting observation with prompt and hook events.
+7. Update only the TmuxCue tmux window options.
 
 ## Testing
 
@@ -141,6 +155,10 @@ For each detected Codex pane:
 - A logged thread outside the candidate cwd/user-thread set is rejected.
 - Missing, malformed, or unreadable `logs_2.sqlite` safely uses the existing
   fallback.
+- A unique exact native-title name binds the correct thread when the current
+  PID-log process identity has no retained `thread_id`.
+- Duplicate or unmatched native-title names do not override existing
+  selection rules.
 
 ### State tests
 
@@ -183,6 +201,7 @@ revision. Do not manipulate the affected agent sessions.
 - The reproduced `codex-1` condition no longer displays `✅` while a newer
   tmux scan still detects working activity.
 - Same-cwd Codex panes resolve to their PID-associated top-level user threads
+  or, after log rotation, their uniquely name-matched top-level user threads,
   instead of sharing the most recently updated thread.
 - Existing approval, abort, completion, privacy, and installation-safety
   behavior remains covered and passing.
