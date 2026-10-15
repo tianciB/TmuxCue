@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+ standard library, unittest, tmux CLI, Bash, GitHub REST API.
 
-**Status:** Approved for inline execution.
+**Status:** Implemented and locally deployed on 2026-10-15.
 
 ## Global Constraints
 
@@ -34,7 +34,7 @@
 - Consumes: `TmuxDetector.detect_state(agent, title, screen)`.
 - Produces: explicit expected behavior for ambiguous Gemini action titles.
 
-- [ ] **Step 1: Add detector regression tests**
+- [x] **Step 1: Add detector regression tests**
 
 Add:
 
@@ -77,7 +77,7 @@ def test_old_gemini_confirmation_text_outside_tail_does_not_block(self):
 Add a daemon regression showing a newer raw `working` observation returns
 `running` over an older Gemini approval hook.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -89,7 +89,7 @@ PYTHONPATH=src python3 tests/test_daemon.py
 Expected: the action-title-without-dialog tests fail because the detector
 currently returns `blocked`.
 
-- [ ] **Step 3: Commit the failing tests with the implementation in Task 2**
+- [x] **Step 3: Commit the failing tests with the implementation in Task 2**
 
 No standalone commit; Task 2 completes the test cycle.
 
@@ -107,7 +107,7 @@ No standalone commit; Task 2 completes the test cycle.
 - Changes: Gemini action titles require bounded screen confirmation before
   returning `blocked`.
 
-- [ ] **Step 1: Implement Gemini-specific precedence**
+- [x] **Step 1: Implement Gemini-specific precedence**
 
 Refactor `detect_state()` so Gemini follows:
 
@@ -135,7 +135,7 @@ evidence remains.
 Add `r"allow once"` and `r"allow for this session"` to
 `GEMINI_APPROVAL_PATTERNS`.
 
-- [ ] **Step 2: Run focused tests**
+- [x] **Step 2: Run focused tests**
 
 Run:
 
@@ -146,7 +146,7 @@ PYTHONPATH=src python3 tests/test_daemon.py
 
 Expected: all focused tests pass.
 
-- [ ] **Step 3: Run Codex/Claude regression tests**
+- [x] **Step 3: Run Codex/Claude regression tests**
 
 Run:
 
@@ -158,7 +158,7 @@ PYTHONPATH=src python3 tests/test_terminal.py
 
 Expected: all tests pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/tmuxcue/detector.py tests/test_detector.py tests/test_daemon.py
@@ -179,7 +179,7 @@ git commit -m "fix: disambiguate Gemini action-required titles"
 **Interfaces:**
 - Produces: user-facing v0.5.1 version and behavior documentation.
 
-- [ ] **Step 1: Add the failing version assertion**
+- [x] **Step 1: Add the failing version assertion**
 
 Change the CLI test to require:
 
@@ -187,7 +187,7 @@ Change the CLI test to require:
 self.assertIn("TmuxCue 0.5.1", output.getvalue())
 ```
 
-- [ ] **Step 2: Run the CLI test and verify failure**
+- [x] **Step 2: Run the CLI test and verify failure**
 
 Run:
 
@@ -197,7 +197,7 @@ PYTHONPATH=src python3 tests/test_cli.py
 
 Expected: installed source still reports v0.5.0.
 
-- [ ] **Step 3: Update version and documentation**
+- [x] **Step 3: Update version and documentation**
 
 Set both version sources to `0.5.1`.
 
@@ -205,7 +205,7 @@ Document that Gemini's native action-required title may be an interactive-shell
 focus hint and TmuxCue requires a current confirmation dialog or permission
 hook before showing `❓`.
 
-- [ ] **Step 4: Run full tests**
+- [x] **Step 4: Run full tests**
 
 Run:
 
@@ -216,7 +216,7 @@ git diff --check
 
 Expected: all tests pass and no whitespace errors are reported.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md docs/ARCHITECTURE.md pyproject.toml \
@@ -237,7 +237,7 @@ git commit -m "chore: release version 0.5.1"
 - Produces: local deployment, pushed main branch, annotated tag, and latest
   GitHub Release.
 
-- [ ] **Step 1: Capture read-only identity snapshots**
+- [x] **Step 1: Capture read-only identity snapshots**
 
 Capture:
 
@@ -247,7 +247,7 @@ tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}:#{pane_pid}
 PYTHONPATH=src python3 -m tmuxcue __process-snapshot
 ```
 
-- [ ] **Step 2: Install and compare identities**
+- [x] **Step 2: Install and compare identities**
 
 Run:
 
@@ -257,7 +257,7 @@ Run:
 
 Compare all three snapshots exactly and require the service to be active.
 
-- [ ] **Step 3: Verify the live Gemini correction**
+- [x] **Step 3: Verify the live Gemini correction**
 
 Use read-only tmux queries and require:
 
@@ -266,12 +266,12 @@ Use read-only tmux queries and require:
 - an action-required title with no current confirmation dialog produces a
   TmuxCue running state and moon icon rather than approval/`❓`.
 
-- [ ] **Step 4: Record deployment results**
+- [x] **Step 4: Record deployment results**
 
 Mark the design implemented and locally deployed. Record only generic counts
 and pass/fail results, never session content or process IDs.
 
-- [ ] **Step 5: Commit and push main**
+- [x] **Step 5: Commit and push main**
 
 ```bash
 git add docs/superpowers/specs/2026-10-15-gemini-action-title-disambiguation-design.md \
@@ -280,7 +280,7 @@ git commit -m "docs: record v0.5.1 deployment"
 git push origin main
 ```
 
-- [ ] **Step 6: Tag and publish**
+- [x] **Step 6: Tag and publish**
 
 ```bash
 git tag -a v0.5.1 -m "TmuxCue v0.5.1"
@@ -290,3 +290,14 @@ git push origin v0.5.1
 Create a non-draft, non-prerelease GitHub Release named `TmuxCue v0.5.1`,
 mark it latest, and include the root cause, detector fix, regression tests, and
 identity-preservation verification.
+
+## Execution record
+
+- All 99 unit tests passed.
+- TmuxCue v0.5.1 was installed and the user service remained active.
+- The tmux server, 54 pane identities, and 12 detected AI process identities
+  matched exactly before and after installation.
+- The live Gemini pane kept its native action-required title while TmuxCue
+  correctly rendered `running` with a moon icon.
+- No key, attach command, signal, or process-control action was sent to the
+  Gemini pane or any other process.

@@ -1,7 +1,7 @@
 # Gemini Action Title Disambiguation Design
 
 **Date:** 2026-10-15
-**Status:** Approved
+**Status:** Implemented and locally deployed
 **Target release:** v0.5.1
 
 ## Problem
@@ -136,3 +136,20 @@ Add regression coverage for:
    detected Codex, Claude, and Gemini process identity unchanged.
 6. v0.5.1 is pushed to `main`, tagged, and published as the latest GitHub
    Release.
+
+## Verification
+
+Local verification on 2026-10-15 completed successfully:
+
+- all 99 unit tests passed;
+- dependency and tmux checks passed;
+- the installed CLI reports v0.5.1;
+- the TmuxCue user service is active;
+- the tmux server identity remained unchanged;
+- all 54 existing tmux pane identities remained unchanged;
+- all 12 detected Codex, Claude, and Gemini process identities remained
+  unchanged;
+- the live Gemini pane retained its native action-required title but TmuxCue
+  resolved it to `running` with the shared moon icon because no current
+  confirmation dialog was present;
+- the live Gemini pane remained present and received no input or signal.
