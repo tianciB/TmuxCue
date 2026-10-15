@@ -57,6 +57,13 @@ All three agents use the same final visual mapping. Gemini native titles
 (`✋ Action Required`, `✦ Working`, and `◇ Ready`) are raw observations only;
 TmuxCue still renders `❓`, the rotating tmux moon, or `✅`.
 
+Gemini's `✋ Action Required` title is ambiguous: the CLI also uses it when an
+interactive shell has produced output and is waiting for focus while work may
+continue automatically. TmuxCue classifies that title as approval only when
+the bounded screen tail contains a current confirmation dialog. Without that
+corroboration it is live working evidence. A bound `ToolPermission` hook
+remains independent high-confidence approval evidence.
+
 ## Installation layout
 
 ```text

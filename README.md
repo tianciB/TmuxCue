@@ -113,6 +113,12 @@ ID, state, event, timestamp, and an exact PID/start-time/TTY binding. They do
 not contain prompts, responses, transcript paths, working directories,
 notification messages, tool arguments, or permission details.
 
+Gemini also uses its native `✋ Action Required` title as an interactive-shell
+focus hint while a command may still be running automatically. TmuxCue shows
+`❓` only when a current confirmation dialog is visible near the bottom of the
+pane or a bound `ToolPermission` hook reports a real approval request.
+Otherwise that title is treated as running work.
+
 TmuxCue configures the default `~/.gemini/settings.json` and safe custom user
 settings discovered from running Gemini processes that set
 `GEMINI_CLI_HOME`. Existing settings and unrelated hooks are preserved and
