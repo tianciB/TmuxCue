@@ -93,6 +93,34 @@ class InstallSafetyTests(unittest.TestCase):
         self.assertIn("server-side VS Code Remote", readme)
         self.assertIn("without per-client setup or a manual refresh", readme)
 
+    def test_gemini_hook_template_is_observational_and_complete(self):
+        template = json.loads((ROOT / "hooks/gemini-hooks.json.in").read_text())
+        self.assertEqual(
+            set(template),
+            {
+                "SessionStart",
+                "BeforeAgent",
+                "Notification",
+                "AfterAgent",
+                "SessionEnd",
+            },
+        )
+        expected_states = {
+            "SessionStart": "done",
+            "BeforeAgent": "running",
+            "Notification": "approval",
+            "AfterAgent": "done",
+            "SessionEnd": "ended",
+        }
+        for event, state in expected_states.items():
+            groups = template[event]
+            self.assertEqual(len(groups), 1)
+            command = groups[0]["hooks"][0]["command"]
+            self.assertIn(f"--agent gemini --state {state}", command)
+        self.assertEqual(template["Notification"][0]["matcher"], "ToolPermission")
+        for event in ("SessionStart", "BeforeAgent", "AfterAgent", "SessionEnd"):
+            self.assertNotIn("matcher", template[event][0])
+
     def test_systemd_unit_has_basic_hardening(self):
         unit = (ROOT / "systemd/tmuxcue.service").read_text(encoding="utf-8")
         for setting in (

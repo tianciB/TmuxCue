@@ -1,10 +1,14 @@
+import io
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
+from tmuxcue import hook
 from tmuxcue.events import (
     EVENT_RETENTION_SECONDS,
     EventReader,
@@ -12,6 +16,7 @@ from tmuxcue.events import (
     load_events,
     write_event,
 )
+from tmuxcue.processes import ProcessBinding
 
 
 class EventTests(unittest.TestCase):
@@ -55,6 +60,57 @@ class EventTests(unittest.TestCase):
                     )
                     reader.poll()
                     self.assertEqual(loader.call_count, 2)
+
+    def test_gemini_hook_records_only_process_binding_metadata(self):
+        input_data = {
+            "session_id": "11111111-1111-1111-1111-111111111111",
+            "transcript_path": "/private/transcript.jsonl",
+            "cwd": "/private/project",
+            "hook_event_name": "Notification",
+            "notification_type": "ToolPermission",
+            "message": "private permission message",
+            "details": {
+                "tool_name": "run_shell_command",
+                "path": "/private/file",
+            },
+        }
+        binding = ProcessBinding(
+            agent="gemini",
+            pid=321,
+            started_at=900,
+            tty="/dev/pts/7",
+            cmdline="node /opt/node_modules/.bin/gemini",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch.dict(os.environ, {"XDG_RUNTIME_DIR": directory}),
+                patch.object(sys, "stdin", io.StringIO(json.dumps(input_data))),
+                patch("tmuxcue.hook.find_agent_ancestor", return_value=binding),
+                redirect_stdout(io.StringIO()) as output,
+            ):
+                result = hook.entrypoint(
+                    ["--agent", "gemini", "--state", "approval"]
+                )
+                event = load_events()[("gemini", input_data["session_id"])]
+
+            self.assertEqual(result, 0)
+            self.assertEqual(output.getvalue(), "{}\n")
+            self.assertEqual(
+                set(event),
+                {
+                    "agent",
+                    "session_id",
+                    "state",
+                    "event",
+                    "timestamp",
+                    "pid",
+                    "started_at",
+                    "tty",
+                },
+            )
+            self.assertEqual(event["pid"], 321)
+            self.assertEqual(event["started_at"], 900)
+            self.assertEqual(event["tty"], "/dev/pts/7")
 
 
 

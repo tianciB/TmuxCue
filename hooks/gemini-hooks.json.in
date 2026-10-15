@@ -1,0 +1,63 @@
+{
+  "SessionStart": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "name": "tmuxcue-session-start",
+          "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent gemini --state done",
+          "timeout": 5000
+        }
+      ]
+    }
+  ],
+  "BeforeAgent": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "name": "tmuxcue-before-agent",
+          "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent gemini --state running",
+          "timeout": 5000
+        }
+      ]
+    }
+  ],
+  "Notification": [
+    {
+      "matcher": "ToolPermission",
+      "hooks": [
+        {
+          "type": "command",
+          "name": "tmuxcue-tool-permission",
+          "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent gemini --state approval",
+          "timeout": 5000
+        }
+      ]
+    }
+  ],
+  "AfterAgent": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "name": "tmuxcue-after-agent",
+          "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent gemini --state done",
+          "timeout": 5000
+        }
+      ]
+    }
+  ],
+  "SessionEnd": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "name": "tmuxcue-session-end",
+          "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent gemini --state ended",
+          "timeout": 5000
+        }
+      ]
+    }
+  ]
+}
