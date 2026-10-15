@@ -1,8 +1,10 @@
 import io
 import unittest
 from contextlib import redirect_stdout
+from unittest.mock import patch
 
 from tmuxcue.service import build_parser, entrypoint, print_completion
+from tmuxcue.processes import ProcessBinding
 
 
 class CliTests(unittest.TestCase):
@@ -32,6 +34,41 @@ class CliTests(unittest.TestCase):
         completion = output.getvalue()
         for value in ("update", "version", "uninstall", "help", "override", "native"):
             self.assertIn(value, completion)
+
+    def test_hidden_process_snapshot_includes_node_based_gemini(self):
+        bindings = [
+            ProcessBinding(
+                agent="gemini",
+                pid=202,
+                started_at=900,
+                tty="/dev/pts/7",
+                cmdline="node /opt/node_modules/.bin/gemini",
+            ),
+            ProcessBinding(
+                agent="codex",
+                pid=101,
+                started_at=800,
+                tty="/dev/pts/1",
+                cmdline="codex",
+            ),
+        ]
+        output = io.StringIO()
+        with (
+            patch(
+                "tmuxcue.service.discover_all_agent_processes",
+                return_value=bindings,
+            ),
+            redirect_stdout(output),
+        ):
+            self.assertEqual(entrypoint(["__process-snapshot"]), 0)
+
+        self.assertEqual(
+            output.getvalue().splitlines(),
+            [
+                "codex:101:800:/dev/pts/1",
+                "gemini:202:900:/dev/pts/7",
+            ],
+        )
 
 
 if __name__ == "__main__":

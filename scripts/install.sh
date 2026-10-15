@@ -76,7 +76,7 @@ trap rollback EXIT
 # Installation must never create, kill, attach, rename, or send keys to a pane.
 TMUX_PID_BEFORE="$(pgrep -o -u "$(id -u)" tmux || true)"
 PANES_BEFORE="$(tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}:#{pane_pid}' 2>/dev/null | sort || true)"
-AI_BEFORE="$(ps -eo uid=,pid=,comm= | awk -v uid="$(id -u)" '$1 == uid && ($3 == "codex" || $3 == "claude" || $3 == "claude-code") { print $2 ":" $3 }' | sort)"
+AI_BEFORE="$(PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -m tmuxcue __process-snapshot)"
 
 PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -m tmuxcue __check
 PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -m unittest discover -s "$ROOT/tests" -q
@@ -153,7 +153,7 @@ install -m 644 "$TMP/tmuxcue.fish" "$HOME/.config/fish/completions/tmuxcue.fish"
 
 TMUX_PID_AFTER="$(pgrep -o -u "$(id -u)" tmux || true)"
 PANES_AFTER="$(tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}:#{pane_pid}' 2>/dev/null | sort || true)"
-AI_AFTER="$(ps -eo uid=,pid=,comm= | awk -v uid="$(id -u)" '$1 == uid && ($3 == "codex" || $3 == "claude" || $3 == "claude-code") { print $2 ":" $3 }' | sort)"
+AI_AFTER="$(PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -m tmuxcue __process-snapshot)"
 [ "$TMUX_PID_BEFORE" = "$TMUX_PID_AFTER" ] \
     && [ "$PANES_BEFORE" = "$PANES_AFTER" ] \
     && [ "$AI_BEFORE" = "$AI_AFTER" ] || {

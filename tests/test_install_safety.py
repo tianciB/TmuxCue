@@ -46,6 +46,9 @@ class InstallSafetyTests(unittest.TestCase):
         self.assertIn("fish/completions", scripts[0])
         self.assertIn("tmuxcue.vscode install", scripts[0])
         self.assertIn("tmuxcue.vscode uninstall", scripts[2])
+        for script in scripts:
+            self.assertGreaterEqual(script.count("__process-snapshot"), 2)
+            self.assertNotIn("ps -eo uid=,pid=,comm=", script)
 
     def test_installers_pin_the_validated_python_runtime(self):
         install = (ROOT / "scripts/install.sh").read_text(encoding="utf-8")

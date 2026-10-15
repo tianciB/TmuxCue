@@ -12,7 +12,8 @@ from . import __version__
 from .core import JsonlTail, Metadata, PaneRow, TerminalRow, icon_for, visual_state
 from .detector import TmuxDetector
 from .events import EventReader
-from .metadata import AgentRow, MetadataResolver, ProcessSnapshot, default_command
+from .metadata import AgentRow, MetadataResolver, default_command
+from .processes import ProcessSnapshot, discover_all_agent_processes
 from .settings import apply_title_mode, source_dir, title_mode, title_override_since
 from .terminal import TerminalDetector, TerminalTitleWriter
 
@@ -646,6 +647,16 @@ def check_dependencies() -> int:
     return 0 if systemd_ok else 1
 
 
+def print_process_snapshot() -> int:
+    bindings = discover_all_agent_processes()
+    for item in sorted(
+        bindings,
+        key=lambda value: (value.agent, value.pid, value.started_at, value.tty),
+    ):
+        print(f"{item.agent}:{item.pid}:{item.started_at}:{item.tty}")
+    return 0
+
+
 def run_script(path: Path) -> int:
     if not path.is_file():
         print(f"Required script not found: {path}", file=sys.stderr)
@@ -710,6 +721,8 @@ def entrypoint(argv: list[str] | None = None) -> int:
         return IndicatorDaemon().run(once=once)
     if arguments and arguments[0] == "__check":
         return check_dependencies()
+    if arguments and arguments[0] == "__process-snapshot":
+        return print_process_snapshot()
     if len(arguments) == 2 and arguments[0] == "__completion":
         return print_completion(arguments[1])
 
