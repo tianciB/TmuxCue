@@ -381,6 +381,49 @@ class DaemonTests(unittest.TestCase):
         self.assertEqual(refreshed, {"a:0", "b:0"})
         self.assertEqual(daemon.metadata_resolver.resolve.call_count, 1)
 
+    def test_gemini_hook_events_are_passed_to_metadata_resolution(self):
+        daemon = IndicatorDaemon()
+        row = PaneRow(
+            "%7",
+            "g:0",
+            "gemini",
+            "idle",
+            "/repo",
+            "",
+            "/dev/pts/7",
+            321,
+            900,
+            "node /opt/node_modules/.bin/gemini",
+        )
+        events = {
+            ("gemini", "session-1"): {
+                "agent": "gemini",
+                "session_id": "session-1",
+                "state": "running",
+                "timestamp": 901,
+                "pid": 321,
+                "started_at": 900,
+                "tty": "/dev/pts/7",
+            }
+        }
+        daemon.rows = {"g:0": row}
+        daemon.metadata_resolver.resolve = Mock(
+            return_value=Metadata("gemini", "model", "topic", "session-1")
+        )
+
+        refreshed = daemon.refresh_metadata_targets(
+            {"g:0"},
+            time.time(),
+            hook_events=events,
+        )
+
+        self.assertEqual(refreshed, {"g:0"})
+        daemon.metadata_resolver.resolve.assert_called_once_with(
+            row,
+            processes=None,
+            hook_events=events,
+        )
+
     def test_unmatched_recent_prompt_retries_metadata_immediately(self):
         daemon = IndicatorDaemon()
         row = PaneRow("%1", "s:0", "codex", "idle", "/tmp", "", "/dev/pts/1")
@@ -404,7 +447,7 @@ class DaemonTests(unittest.TestCase):
         daemon.apply_targets = lambda *_args: order.append("apply") or False
         daemon.metadata_due_targets = lambda _force: {"s:0"}
         daemon.refresh_metadata_targets = (
-            lambda _targets, _now: order.append("metadata") or set()
+            lambda _targets, _now, _events=None: order.append("metadata") or set()
         )
 
         self.assertTrue(daemon.update_once())

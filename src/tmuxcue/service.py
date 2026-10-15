@@ -232,12 +232,24 @@ class IndicatorDaemon:
         row: AgentRow,
         now: float,
         processes: ProcessSnapshot | None = None,
+        hook_events: dict[tuple[str, str], dict] | None = None,
     ) -> Metadata:
         return self._store_metadata(
-            target, self.metadata_resolver.resolve(row, processes=processes), now
+            target,
+            self.metadata_resolver.resolve(
+                row,
+                processes=processes,
+                hook_events=hook_events or {},
+            ),
+            now,
         )
 
-    def refresh_metadata_targets(self, targets: set[str], now: float) -> set[str]:
+    def refresh_metadata_targets(
+        self,
+        targets: set[str],
+        now: float,
+        hook_events: dict[tuple[str, str], dict] | None = None,
+    ) -> set[str]:
         valid = [target for target in targets if target in self.rows]
         processes = (
             self.metadata_resolver.process_snapshot()
@@ -254,7 +266,11 @@ class IndicatorDaemon:
             key = self.metadata_source_key(row)
             metadata = resolved.get(key)
             if metadata is None:
-                metadata = self.metadata_resolver.resolve(row, processes=processes)
+                metadata = self.metadata_resolver.resolve(
+                    row,
+                    processes=processes,
+                    hook_events=hook_events or {},
+                )
                 resolved[key] = metadata
             self._store_metadata(target, metadata, now)
             refreshed.add(target)
@@ -577,7 +593,11 @@ class IndicatorDaemon:
             | prompt_targets
             | self.recent_unmatched_hook_targets(hook_events, now)
         )
-        refreshed = self.refresh_metadata_targets(metadata_targets, time.time())
+        refreshed = self.refresh_metadata_targets(
+            metadata_targets,
+            time.time(),
+            hook_events,
+        )
         if refreshed:
             refreshed_at = time.time()
             hook_events = self.event_reader.poll(refreshed_at)
