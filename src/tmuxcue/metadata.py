@@ -11,13 +11,11 @@ import time
 from typing import Callable
 
 from .core import Metadata, PaneRow, TerminalRow, clean_text, is_generic_input, shorten
+from .processes import ProcessInfo, ProcessSnapshot, discover_agent_processes
 
 UUID_RE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b", re.I)
-ProcessInfo = tuple[int, int, str]
-ProcessSnapshot = dict[tuple[str, str], ProcessInfo]
 RuntimeSnapshot = tuple[str | None, float]
 AgentRow = PaneRow | TerminalRow
-AGENT_PROCESS_NAMES = {"codex": "codex", "claude": "claude", "claude-code": "claude"}
 
 
 def event_timestamp(value: object) -> float:
@@ -35,98 +33,6 @@ def event_timestamp(value: object) -> float:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
     except ValueError:
         return 0.0
-
-
-def _read_process_stat(path: Path) -> tuple[str, int, int, int] | None:
-    try:
-        text = path.read_text(encoding="utf-8")
-        closing = text.rfind(")")
-        if closing < 0:
-            return None
-        fields = text[closing + 2 :].split()
-        if len(fields) <= 19:
-            return None
-        return fields[0], int(fields[2]), int(fields[5]), int(fields[19])
-    except (OSError, ValueError):
-        return None
-
-
-def discover_agent_processes(
-    proc_root: Path = Path("/proc"),
-    uid: int | None = None,
-    now: float | None = None,
-) -> ProcessSnapshot:
-    """Find foreground Codex and Claude processes with one bounded /proc scan."""
-    proc_root = Path(proc_root)
-    uid = os.getuid() if uid is None else uid
-    now = time.time() if now is None else now
-    booted_at: float | None = None
-    try:
-        for line in (proc_root / "stat").read_text(encoding="utf-8").splitlines():
-            if line.startswith("btime "):
-                booted_at = float(line.split()[1])
-                break
-    except (OSError, ValueError, IndexError):
-        pass
-    if booted_at is None:
-        try:
-            uptime = float((proc_root / "uptime").read_text(encoding="utf-8").split()[0])
-            booted_at = now - uptime
-        except (OSError, ValueError, IndexError):
-            booted_at = now
-    try:
-        clock_ticks = int(os.sysconf("SC_CLK_TCK"))
-    except (OSError, ValueError):
-        clock_ticks = 100
-
-    selected: dict[tuple[str, str], tuple[int, ProcessInfo]] = {}
-    try:
-        process_dirs = proc_root.iterdir()
-    except OSError:
-        return {}
-    for process_dir in process_dirs:
-        if not process_dir.name.isdigit():
-            continue
-        try:
-            if process_dir.stat().st_uid != uid:
-                continue
-            process_name = (process_dir / "comm").read_text(encoding="utf-8").strip().lower()
-        except OSError:
-            continue
-        agent = AGENT_PROCESS_NAMES.get(process_name, "")
-        if not agent:
-            continue
-
-        process_stat = _read_process_stat(process_dir / "stat")
-        if process_stat is None:
-            continue
-        state, process_group, foreground_group, start_ticks = process_stat
-        if state in {"T", "t", "Z", "X"} or foreground_group <= 0 or process_group != foreground_group:
-            continue
-        try:
-            tty = os.readlink(process_dir / "fd/0").removesuffix(" (deleted)")
-        except OSError:
-            continue
-        if not tty.startswith("/dev/"):
-            continue
-        try:
-            cmdline = (
-                (process_dir / "cmdline")
-                .read_bytes()
-                .replace(b"\0", b" ")
-                .decode("utf-8", "replace")
-                .strip()
-            )
-        except OSError:
-            cmdline = process_name
-
-        pid = int(process_dir.name)
-        started_at = int(booted_at + (start_ticks / max(clock_ticks, 1)))
-        key = (tty, agent)
-        previous = selected.get(key)
-        if previous is None or pid > previous[0]:
-            selected[key] = (pid, (pid, started_at, cmdline or process_name))
-    return {key: value for key, (_pid, value) in selected.items()}
 
 
 def default_command(args: tuple[str, ...], timeout: float = 5) -> str:

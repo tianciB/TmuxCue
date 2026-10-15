@@ -6,7 +6,8 @@ import re
 from typing import Callable
 
 from .core import PaneRow, PRIORITY
-from .metadata import ProcessSnapshot, default_command, discover_agent_processes
+from .metadata import default_command
+from .processes import ProcessSnapshot, discover_agent_processes
 
 BRAILLE_START = 0x2800
 BRAILLE_END = 0x28FF

@@ -30,6 +30,31 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(rows["s:0"].state, "working")
         self.assertFalse(any(args[0] == "ps" for args in commands))
 
+    def test_scan_recognizes_wrapped_gemini_process(self):
+        def command(args, _timeout=5):
+            if args[:3] == ("tmux", "list-panes", "-a"):
+                return "%1\ts:0.0\tbash\t/tmp\t◇  Ready (tmp)\t/dev/pts/7"
+            if len(args) > 1 and args[1] == "capture-pane":
+                return ""
+            return ""
+
+        processes = {
+            ("/dev/pts/7", "gemini"): (
+                202,
+                100,
+                "node /opt/node_modules/.bin/gemini",
+            )
+        }
+        detector = TmuxDetector(
+            command=command,
+            process_provider=lambda _root, _uid: processes,
+        )
+
+        rows = detector.scan()
+
+        self.assertEqual(rows["s:0"].pid, 202)
+        self.assertEqual(rows["s:0"].agent, "gemini")
+
     def test_braille_title_is_working(self):
         self.assertEqual(self.detector.detect_state("codex", "⠙ Codex", ""), "working")
 

@@ -35,6 +35,32 @@ class TerminalDetectorTests(unittest.TestCase):
             self.assertEqual(rows["terminal:102"].agent, "claude")
             self.assertEqual(rows["terminal:102"].tty, "/dev/pts/2")
 
+    def test_discovers_gemini_from_shared_process_snapshot(self):
+        uid = os.getuid()
+        with tempfile.TemporaryDirectory() as directory:
+            proc = Path(directory)
+            process = proc / "202"
+            process.mkdir()
+            (process / "cwd").symlink_to("/tmp/gemini")
+            processes = {
+                ("/dev/pts/7", "gemini"): (
+                    202,
+                    20,
+                    "node /opt/node_modules/.bin/gemini",
+                )
+            }
+            detector = TerminalDetector(
+                proc_root=proc,
+                uid=uid,
+                process_provider=lambda _root, _uid: processes,
+            )
+
+            rows = detector.scan(set())
+
+            self.assertEqual(set(rows), {"terminal:202"})
+            self.assertEqual(rows["terminal:202"].agent, "gemini")
+            self.assertEqual(rows["terminal:202"].cwd_hint, "/tmp/gemini")
+
 
 class TerminalTitleWriterTests(unittest.TestCase):
     def test_sanitize_removes_terminal_control_characters(self):

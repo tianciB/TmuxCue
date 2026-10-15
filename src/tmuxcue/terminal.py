@@ -7,7 +7,8 @@ import stat
 from typing import Callable
 
 from .core import TerminalRow
-from .metadata import ProcessSnapshot, default_command, discover_agent_processes
+from .metadata import default_command
+from .processes import ProcessSnapshot, discover_agent_processes
 
 AGENTS = {"codex": "codex", "claude": "claude", "claude-code": "claude"}
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
