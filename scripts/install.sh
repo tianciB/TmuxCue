@@ -175,3 +175,4 @@ fi
 
 echo "TmuxCue installed. Existing tmux and terminal AI processes were left untouched."
 echo "Codex users: run /hooks once to review and trust the hooks."
+echo "Gemini users: run /hooks panel once to review the observational hooks."

@@ -15,7 +15,7 @@ CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 class TerminalDetector:
-    """Find foreground Codex and Claude processes outside tmux panes."""
+    """Find foreground Codex, Claude, and Gemini processes outside tmux."""
 
     def __init__(
         self,

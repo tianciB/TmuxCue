@@ -55,7 +55,7 @@ GEMINI_STATUS_TITLE = re.compile(
 
 
 class TmuxDetector:
-    """Independently detect Codex and Claude panes from native tmux state."""
+    """Detect Codex, Claude, and Gemini panes from native tmux state."""
 
     def __init__(
         self,

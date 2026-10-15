@@ -697,7 +697,7 @@ def print_completion(shell: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tmuxcue",
-        description="Safe status titles for Codex and Claude terminals",
+        description="Safe status titles for Codex, Claude, and Gemini terminals",
     )
     subcommands = parser.add_subparsers(dest="command")
     subcommands.add_parser("update", help="update TmuxCue from its Git clone")
@@ -742,7 +742,10 @@ def entrypoint(argv: list[str] | None = None) -> int:
         apply_title_mode(args.mode)
         print(f"terminal-title: {args.mode}")
         if args.mode == "override":
-            print("Native title generation is disabled for newly started Codex and Claude sessions.")
+            print(
+                "Native title generation is disabled for newly started "
+                "Codex, Claude, and Gemini sessions."
+            )
         return 0
     if args.command == "update":
         source = source_dir()

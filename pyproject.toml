@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tmuxcue"
-version = "0.4.6"
-description = "Keyboard-first Codex and Claude status indicators for native tmux"
+version = "0.5.0"
+description = "Keyboard-first Codex, Claude, and Gemini status indicators for native tmux"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

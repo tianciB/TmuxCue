@@ -17,7 +17,7 @@ class CliTests(unittest.TestCase):
         output = io.StringIO()
         with redirect_stdout(output):
             self.assertEqual(entrypoint(["version"]), 0)
-        self.assertIn("TmuxCue 0.4.6", output.getvalue())
+        self.assertIn("TmuxCue 0.5.0", output.getvalue())
 
         output = io.StringIO()
         with redirect_stdout(output):
@@ -25,6 +25,7 @@ class CliTests(unittest.TestCase):
         help_text = output.getvalue()
         for command in ("update", "version", "uninstall", "help"):
             self.assertIn(command, help_text)
+        self.assertIn("Codex, Claude, and Gemini", help_text)
         self.assertNotIn("__service", help_text)
 
     def test_bash_completion_contains_public_commands_and_title_modes(self):

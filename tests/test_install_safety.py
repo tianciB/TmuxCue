@@ -124,6 +124,21 @@ class InstallSafetyTests(unittest.TestCase):
         self.assertEqual(template["Notification"][0]["matcher"], "ToolPermission")
         for event in ("SessionStart", "BeforeAgent", "AfterAgent", "SessionEnd"):
             self.assertNotIn("matcher", template[event][0])
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        for event, state in expected_states.items():
+            self.assertIn(event, readme)
+            self.assertIn(f"--agent gemini --state {state}", readme)
+        self.assertIn("observational only", readme)
+        self.assertIn("GEMINI_CLI_HOME", readme)
+        self.assertIn(
+            "gemini/gemini-2.5-pro",
+            readme,
+        )
+        architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Codex / Claude / Gemini", architecture)
+        self.assertIn("PID, process start time, and TTY", architecture)
 
     def test_systemd_unit_has_basic_hardening(self):
         unit = (ROOT / "systemd/tmuxcue.service").read_text(encoding="utf-8")
