@@ -47,12 +47,6 @@ GEMINI_WORKING_PATTERNS = WORKING_PATTERNS + (
     r"esc to cancel",
     r"\bworking\b",
 )
-GEMINI_STATUS_TITLE = re.compile(
-    r"^[✦✋◇]\s*(?:working|action required|ready)"
-    r"(?:\s*\([^)]*\))?\s*$",
-    re.I,
-)
-
 
 class TmuxDetector:
     """Detect Codex, Claude, and Gemini panes from native tmux state."""
@@ -159,7 +153,7 @@ class TmuxDetector:
     @classmethod
     def title_subject(cls, title: str) -> str:
         value = (title or "").strip()
-        if GEMINI_STATUS_TITLE.fullmatch(value):
+        if value.startswith(("✦", "✋", "◇")):
             return ""
         if cls.title_is_working(value):
             value = value[1:].lstrip()

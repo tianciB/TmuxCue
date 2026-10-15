@@ -93,6 +93,10 @@ class DetectorTests(unittest.TestCase):
     def test_gemini_native_status_is_not_used_as_a_topic(self):
         self.assertEqual(self.detector.title_subject("◇ Ready (repo)"), "")
         self.assertEqual(self.detector.title_subject("✦ Working (repo)"), "")
+        self.assertEqual(
+            self.detector.title_subject("✦ Reviewing changes (repo)"),
+            "",
+        )
 
     def test_gemini_old_permission_text_outside_tail_is_ignored(self):
         screen = "Allow execution?\n" + "\n".join(

@@ -3,7 +3,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tmuxcue.processes import discover_agent_processes, is_gemini_cli_command
+from tmuxcue.processes import (
+    discover_agent_processes,
+    find_agent_ancestor,
+    is_gemini_cli_command,
+)
 
 
 class ProcessDiscoveryTests(unittest.TestCase):
@@ -126,6 +130,43 @@ class ProcessDiscoveryTests(unittest.TestCase):
             rows = discover_agent_processes(proc, uid=os.getuid(), now=2_000)
 
             self.assertEqual(rows[("/dev/pts/7", "gemini")][0], 202)
+
+    def test_hook_parent_walk_finds_nearest_gemini_process(self):
+        temporary, proc = self.proc_tree()
+        with temporary:
+            self.add_process(
+                proc,
+                202,
+                comm="node",
+                cmdline=["node", "/opt/node_modules/.bin/gemini"],
+                tty="/dev/pts/7",
+                parent=201,
+                process_group=200,
+                foreground_group=200,
+                start_ticks=510,
+            )
+            self.add_process(
+                proc,
+                300,
+                comm="sh",
+                cmdline=["sh", "-c", "tmuxcue-hook"],
+                tty="/dev/pts/7",
+                parent=202,
+                process_group=200,
+                foreground_group=200,
+                start_ticks=520,
+            )
+
+            binding = find_agent_ancestor(
+                "gemini",
+                start_pid=300,
+                proc_root=proc,
+                uid=os.getuid(),
+            )
+
+            self.assertIsNotNone(binding)
+            self.assertEqual(binding.pid, 202)
+            self.assertEqual(binding.tty, "/dev/pts/7")
 
 
 if __name__ == "__main__":
