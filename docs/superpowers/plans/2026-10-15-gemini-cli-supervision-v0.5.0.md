@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3.10+ standard library, unittest, Linux `/proc`, tmux CLI, JSON/JSONL, Bash, systemd user service.
 
+**Status:** Implemented and locally deployed on 2026-10-15.
+
 ## Global Constraints
 
 - Release version is exactly `0.5.0`.
@@ -38,7 +40,7 @@
 - Produces: `ProcessInfo`, `ProcessSnapshot`, `ProcessBinding`, `is_gemini_cli_command()`, `discover_all_agent_processes()`, `discover_agent_processes()`, `find_agent_ancestor()`, and `read_process_environment_value()` in `tmuxcue.processes`.
 - Consumes: Linux `/proc/<pid>/{comm,stat,cmdline,environ,fd/0}` and current-user UID.
 
-- [ ] **Step 1: Add failing strict-classification and foreground-selection tests**
+- [x] **Step 1: Add failing strict-classification and foreground-selection tests**
 
 Create `tests/test_processes.py` with fixtures that write a bounded fake `/proc`
 tree and assertions equivalent to:
@@ -104,7 +106,7 @@ Also add detector and terminal assertions that a provided
 `{("/dev/pts/7", "gemini"): (202, 900, "node .../.bin/gemini")}` snapshot
 creates a Gemini pane/terminal row.
 
-- [ ] **Step 2: Run the focused tests and verify they fail**
+- [x] **Step 2: Run the focused tests and verify they fail**
 
 Run:
 
@@ -115,7 +117,7 @@ PYTHONPATH=src python3 -m unittest \
 
 Expected: import failure for `tmuxcue.processes` or missing Gemini rows.
 
-- [ ] **Step 3: Implement the shared process module**
+- [x] **Step 3: Implement the shared process module**
 
 Create `src/tmuxcue/processes.py` with these concrete public definitions:
 
@@ -196,7 +198,7 @@ requested key's decoded value.
 Update imports in metadata, detector, and terminal. Remove the duplicated
 process types and discovery implementation from `metadata.py`.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run:
 
@@ -208,7 +210,7 @@ PYTHONPATH=src python3 -m unittest \
 Expected: all tests pass and existing Codex/Claude discovery tests remain
 green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tmuxcue/processes.py src/tmuxcue/metadata.py \
@@ -232,7 +234,7 @@ git commit -m "feat: detect Gemini CLI processes safely"
   continue through existing `visual_state()`, `icon_for()`, and
   `IndicatorDaemon.format_title()`.
 
-- [ ] **Step 1: Add failing native-title tests**
+- [x] **Step 1: Add failing native-title tests**
 
 Add:
 
@@ -274,7 +276,7 @@ self.assertEqual(
 )
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -284,7 +286,7 @@ PYTHONPATH=src python3 -m unittest tests.test_detector tests.test_daemon -v
 
 Expected: Gemini `✦` and `✋` titles currently resolve to idle.
 
-- [ ] **Step 3: Implement Gemini state patterns**
+- [x] **Step 3: Implement Gemini state patterns**
 
 Add:
 
@@ -311,7 +313,7 @@ In `detect_state()`:
 5. Select approval and working pattern tuples by explicit agent rather than
    treating every non-Codex agent as Claude.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run:
 
@@ -321,7 +323,7 @@ PYTHONPATH=src python3 -m unittest tests.test_detector tests.test_daemon -v
 
 Expected: all tests pass, including exact Gemini title formatting.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tmuxcue/detector.py tests/test_detector.py tests/test_daemon.py
@@ -344,7 +346,7 @@ git commit -m "feat: map Gemini native states to TmuxCue"
 - Produces: event JSON containing only `agent`, `session_id`, `state`, `event`,
   `timestamp`, `pid`, `started_at`, and `tty`.
 
-- [ ] **Step 1: Add failing hook template, output, binding, and privacy tests**
+- [x] **Step 1: Add failing hook template, output, binding, and privacy tests**
 
 Add tests that load the template and require exactly:
 
@@ -387,7 +389,7 @@ ProcessBinding(
 Assert stdout is exactly `"{}\\n"` and the persisted event has the allowed
 keys only.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -397,7 +399,7 @@ PYTHONPATH=src python3 -m unittest tests.test_events tests.test_install_safety -
 
 Expected: `--agent gemini` is rejected and the template is absent.
 
-- [ ] **Step 3: Add the Gemini hook template**
+- [x] **Step 3: Add the Gemini hook template**
 
 Create `hooks/gemini-hooks.json.in` with five groups. Each command must be
 quoted exactly as:
@@ -414,7 +416,7 @@ quoted exactly as:
 Use event-specific names, omit matchers for the four all-event hooks, and set
 `"matcher": "ToolPermission"` only on `Notification`.
 
-- [ ] **Step 4: Extend the hook entrypoint**
+- [x] **Step 4: Extend the hook entrypoint**
 
 Change the parser choices to include `gemini`. Resolve a process binding only
 for Gemini:
@@ -442,7 +444,7 @@ write_event(payload)
 Print `{}` for every Gemini event. Keep the existing Codex no-op response
 behavior and Claude silence unchanged.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 
@@ -452,7 +454,7 @@ PYTHONPATH=src python3 -m unittest tests.test_events tests.test_install_safety -
 
 Expected: all event/template/privacy tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add hooks/gemini-hooks.json.in src/tmuxcue/hook.py \
@@ -476,7 +478,7 @@ git commit -m "feat: record Gemini lifecycle hooks"
   `gemini_model_from_command()`, and `gemini_configured_model()`.
 - Extends: `MetadataResolver.resolve(row, processes=None, hook_events=None)`.
 
-- [ ] **Step 1: Add failing JSONL parsing and isolation tests**
+- [x] **Step 1: Add failing JSONL parsing and isolation tests**
 
 Build Gemini state fixtures with:
 
@@ -501,7 +503,7 @@ Cover:
 - `--model gemini-command` and `--model=gemini-command` are parsed;
 - malformed or larger-than-2-MiB transcripts are skipped.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -511,7 +513,7 @@ PYTHONPATH=src python3 -m unittest tests.test_gemini tests.test_metadata -v
 
 Expected: missing `tmuxcue.gemini` and no Gemini metadata branch.
 
-- [ ] **Step 3: Implement bounded Gemini session parsing**
+- [x] **Step 3: Implement bounded Gemini session parsing**
 
 Create:
 
@@ -546,7 +548,7 @@ directory, and otherwise returns `home / ".gemini"`.
 filters by exact project root and requires exactly one session whose
 `updated_at >= process_started_at - 5`.
 
-- [ ] **Step 4: Bind hook events and integrate metadata resolution**
+- [x] **Step 4: Bind hook events and integrate metadata resolution**
 
 Add:
 
@@ -577,7 +579,7 @@ Model fallback order is transcript, command line, then
 `settings.json["model"]["name"]`. Topic fallback remains the shared pane
 subject/project basename only after Gemini returns no bound topic.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 
@@ -588,7 +590,7 @@ PYTHONPATH=src python3 -m unittest \
 
 Expected: all tests pass and no fixture contains personal runtime data.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/tmuxcue/gemini.py src/tmuxcue/metadata.py \
@@ -610,7 +612,7 @@ git commit -m "feat: bind Gemini metadata to exact sessions"
 - Produces: exact Gemini metadata before hook state lookup in
   `apply_targets()`.
 
-- [ ] **Step 1: Add failing daemon binding and state-precedence tests**
+- [x] **Step 1: Add failing daemon binding and state-precedence tests**
 
 Create daemon tests with two Gemini rows sharing `/repo` but different
 PID/start-time/TTY values. Provide two hook events and a fake resolver that
@@ -623,7 +625,7 @@ returns a distinct session per exact event binding. Assert:
 - a done event does not replace newer live working evidence;
 - direct-terminal running uses stable `🌒`.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -634,7 +636,7 @@ PYTHONPATH=src python3 -m unittest tests.test_daemon -v
 Expected: resolver calls do not receive hook events, so same-directory Gemini
 rows cannot bind independently.
 
-- [ ] **Step 3: Pass hook events during metadata refresh**
+- [x] **Step 3: Pass hook events during metadata refresh**
 
 Change:
 
@@ -662,7 +664,7 @@ In `update_once()`, pass the already-polled `hook_events` to
 where necessary because `resolve_state()` already allows newer live
 observations to replace stale approval/done events.
 
-- [ ] **Step 4: Run focused daemon tests**
+- [x] **Step 4: Run focused daemon tests**
 
 Run:
 
@@ -672,7 +674,7 @@ PYTHONPATH=src python3 -m unittest tests.test_daemon tests.test_metadata -v
 
 Expected: all daemon and metadata tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tmuxcue/service.py tests/test_daemon.py
@@ -695,7 +697,7 @@ git commit -m "feat: bind Gemini hooks in the daemon"
 - Extends: `configure.install(root, home, gemini_settings_paths=None)` for
   deterministic tests.
 
-- [ ] **Step 1: Add failing reversible-configuration tests**
+- [x] **Step 1: Add failing reversible-configuration tests**
 
 Extend configuration tests to create:
 
@@ -742,7 +744,7 @@ Extend title tests with original:
 Assert override sets both title keys to false and native restores both true
 while preserving `theme`.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -754,7 +756,7 @@ PYTHONPATH=src python3 -m unittest \
 Expected: install does not touch Gemini settings and title mode does not
 manage Gemini UI keys.
 
-- [ ] **Step 3: Implement safe Gemini settings discovery and registry**
+- [x] **Step 3: Implement safe Gemini settings discovery and registry**
 
 In `scripts/configure.py`:
 
@@ -779,7 +781,7 @@ RuntimeError(f"Invalid JSON settings file: {path}")
 
 instead of replacing malformed JSON.
 
-- [ ] **Step 4: Implement reversible Gemini title settings**
+- [x] **Step 4: Implement reversible Gemini title settings**
 
 In `settings.py`, read validated registry paths. Save state under:
 
@@ -800,7 +802,7 @@ Override sets both keys to `False`. Restore changes a key only when its current
 value is still `False`, restoring the saved value or removing a key that
 TmuxCue added. Remove `ui` only when it becomes empty.
 
-- [ ] **Step 5: Run focused configuration tests**
+- [x] **Step 5: Run focused configuration tests**
 
 Run:
 
@@ -811,7 +813,7 @@ PYTHONPATH=src python3 -m unittest \
 
 Expected: all configuration, malformed-input, and reversible-title tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/configure.py src/tmuxcue/settings.py \
@@ -835,7 +837,7 @@ git commit -m "feat: configure Gemini hooks and titles safely"
 - Produces: hidden command `tmuxcue __process-snapshot`.
 - Consumes: `discover_all_agent_processes()`.
 
-- [ ] **Step 1: Add failing snapshot and script tests**
+- [x] **Step 1: Add failing snapshot and script tests**
 
 Add CLI coverage that patches `discover_all_agent_processes()` and requires
 sorted lines in this exact format:
@@ -853,7 +855,7 @@ PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -m tmuxcue __process-snapshot
 
 and no longer contains the old `ps ... comm ... awk` filter.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -863,7 +865,7 @@ PYTHONPATH=src python3 -m unittest tests.test_cli tests.test_install_safety -v
 
 Expected: hidden command is absent and scripts still omit Node-based Gemini.
 
-- [ ] **Step 3: Implement the hidden process snapshot**
+- [x] **Step 3: Implement the hidden process snapshot**
 
 Add:
 
@@ -881,13 +883,13 @@ def print_process_snapshot() -> int:
 Dispatch `__process-snapshot` before the public argparse parser so it remains
 hidden from help and shell completions.
 
-- [ ] **Step 4: Replace shell process filters**
+- [x] **Step 4: Replace shell process filters**
 
 In all three safety scripts, calculate `AI_BEFORE` and `AI_AFTER` with the
 hidden command and the already validated Python interpreter. Preserve all tmux
 server and pane checks and all forbidden-command guarantees.
 
-- [ ] **Step 5: Run safety tests**
+- [x] **Step 5: Run safety tests**
 
 Run:
 
@@ -897,7 +899,7 @@ PYTHONPATH=src python3 -m unittest tests.test_cli tests.test_install_safety -v
 
 Expected: all tests pass and public help still exposes no hidden command.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/tmuxcue/service.py scripts/install.sh scripts/update.sh \
@@ -923,7 +925,7 @@ git commit -m "fix: protect Gemini processes during lifecycle operations"
 **Interfaces:**
 - Produces: public v0.5.0 documentation and CLI copy.
 
-- [ ] **Step 1: Add failing release/documentation assertions**
+- [x] **Step 1: Add failing release/documentation assertions**
 
 Require:
 
@@ -936,7 +938,7 @@ Require:
 - architecture detection/output sections include Gemini;
 - privacy test remains free of personal paths and CJK characters.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -947,7 +949,7 @@ PYTHONPATH=src python3 -m unittest \
 
 Expected: old version and two-agent wording fail.
 
-- [ ] **Step 3: Update version and user-facing copy**
+- [x] **Step 3: Update version and user-facing copy**
 
 Set both package version sources to `0.5.0`. Change descriptions to:
 
@@ -958,7 +960,7 @@ Safe status titles for Codex, Claude, and Gemini terminals
 Update the title-mode message to state that native generation is disabled for
 newly started Codex, Claude, and Gemini sessions.
 
-- [ ] **Step 4: Update README and architecture**
+- [x] **Step 4: Update README and architecture**
 
 Document:
 
@@ -972,7 +974,7 @@ Document:
 - install and uninstall safety including Node-based Gemini;
 - no process restarts or signals.
 
-- [ ] **Step 5: Run documentation and full unit tests**
+- [x] **Step 5: Run documentation and full unit tests**
 
 Run:
 
@@ -982,7 +984,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add README.md docs/ARCHITECTURE.md pyproject.toml \
@@ -1003,7 +1005,7 @@ git commit -m "docs: release Gemini supervision v0.5.0"
 - Consumes: complete v0.5.0 implementation.
 - Produces: test evidence, local installation, and deployment status records.
 
-- [ ] **Step 1: Verify the repository**
+- [x] **Step 1: Verify the repository**
 
 Run:
 
@@ -1015,7 +1017,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 Expected: no whitespace errors, dependency check succeeds, and all tests pass.
 
-- [ ] **Step 2: Capture independent pre-deployment identities**
+- [x] **Step 2: Capture independent pre-deployment identities**
 
 Run read-only snapshots:
 
@@ -1027,7 +1029,7 @@ AI_BEFORE="$(PYTHONPATH=src python3 -m tmuxcue __process-snapshot)"
 
 Do not run any process-control command.
 
-- [ ] **Step 3: Install locally**
+- [x] **Step 3: Install locally**
 
 Run:
 
@@ -1041,7 +1043,7 @@ Expected:
 TmuxCue installed. Existing tmux and terminal AI processes were left untouched.
 ```
 
-- [ ] **Step 4: Verify identities and service health**
+- [x] **Step 4: Verify identities and service health**
 
 Run:
 
@@ -1054,7 +1056,7 @@ test "$AI_BEFORE" = "$(PYTHONPATH=src python3 -m tmuxcue __process-snapshot)"
 
 Expected: all commands return zero.
 
-- [ ] **Step 5: Verify the live Gemini pane read-only**
+- [x] **Step 5: Verify the live Gemini pane read-only**
 
 Use only:
 
@@ -1065,17 +1067,29 @@ tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}|#{pane_tty}
 Expected: the Gemini pane has a TmuxCue state/icon/title using
 `[tmux] gemini/...`; no key is sent and no pane is attached.
 
-- [ ] **Step 6: Record deployment status**
+- [x] **Step 6: Record deployment status**
 
 Change the design status to `Implemented and locally deployed`, check every
 completed plan checkbox, and add a verification paragraph containing only
 generic command results and counts, never local paths, session topics, or
 process IDs.
 
-- [ ] **Step 7: Commit deployment record**
+- [x] **Step 7: Commit deployment record**
 
 ```bash
 git add docs/superpowers/specs/2026-10-15-gemini-cli-supervision-design.md \
   docs/superpowers/plans/2026-10-15-gemini-cli-supervision-v0.5.0.md
 git commit -m "docs: record v0.5.0 deployment"
 ```
+
+## Execution record
+
+- Dependency and tmux checks passed.
+- All 96 unit tests passed.
+- Local installation completed with TmuxCue v0.5.0 active.
+- The tmux server, 54 pane identities, and 11 detected AI process identities
+  matched exactly before and after installation.
+- The live Gemini pane used the shared done icon and
+  `[tmux] gemini/MODEL: TOPIC` layout.
+- Two managed Gemini user settings files each contained all five observational
+  TmuxCue hooks.

@@ -1,7 +1,7 @@
 # Gemini CLI Supervision Design
 
 **Date:** 2026-10-15
-**Status:** Approved
+**Status:** Implemented and locally deployed
 **Target release:** v0.5.0
 
 ## Problem
@@ -318,3 +318,21 @@ Add or extend tests for:
 6. Uninstall removes only TmuxCue's Gemini hooks and restores managed title
    settings while leaving all sessions running.
 7. All tests pass under Python 3.10 or newer with no added runtime dependency.
+
+## Verification
+
+Local verification on 2026-10-15 completed successfully:
+
+- dependency and tmux checks passed;
+- all 96 unit tests passed;
+- the installed CLI reports v0.5.0;
+- the TmuxCue user service is active;
+- the tmux server identity remained unchanged;
+- all 54 existing tmux pane identities remained unchanged;
+- all 11 detected Codex, Claude, and Gemini process identities remained
+  unchanged;
+- one live Gemini tmux row was recognized with a bound model, session, and
+  topic;
+- the live Gemini row rendered the shared done icon and
+  `[tmux] gemini/MODEL: TOPIC` title layout;
+- both managed Gemini user settings files contain all five TmuxCue hooks.
