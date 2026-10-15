@@ -11,6 +11,14 @@ import time
 from typing import Callable
 
 from .core import Metadata, PaneRow, TerminalRow, clean_text, is_generic_input, shorten
+from .gemini import (
+    gemini_bound_session_id,
+    gemini_configured_model,
+    gemini_model_from_command,
+    gemini_state_dir,
+    load_gemini_sessions,
+    select_gemini_session,
+)
 from .processes import ProcessInfo, ProcessSnapshot, discover_agent_processes
 
 UUID_RE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b", re.I)
@@ -86,7 +94,10 @@ class MetadataResolver:
         return self.process_snapshot().get((tty, agent))
 
     def resolve(
-        self, row: AgentRow, processes: ProcessSnapshot | None = None
+        self,
+        row: AgentRow,
+        processes: ProcessSnapshot | None = None,
+        hook_events: dict[tuple[str, str], dict] | None = None,
     ) -> Metadata:
         if isinstance(row, PaneRow):
             cwd = row.cwd_hint or self.run(
@@ -109,6 +120,13 @@ class MetadataResolver:
         elif row.agent == "claude":
             model, topic, session_id = self.claude_metadata(
                 cwd, process[0] if process else None
+            )
+        elif row.agent == "gemini":
+            model, topic, session_id = self.gemini_metadata(
+                cwd,
+                row.tty,
+                process,
+                hook_events or {},
             )
         else:
             model, topic, session_id = "", row.subject, ""
@@ -303,6 +321,44 @@ class MetadataResolver:
         if not topic:
             topic = thread["title"] or ""
         return thread["model"] or "", topic, thread["id"]
+
+    def gemini_metadata(
+        self,
+        cwd: str,
+        tty: str,
+        process: ProcessInfo | None,
+        hook_events: dict[tuple[str, str], dict],
+    ) -> tuple[str, str, str]:
+        pid = process[0] if process else 0
+        started_at = process[1] if process else 0
+        command = process[2] if process else ""
+        state_dir = gemini_state_dir(
+            self.home,
+            pid,
+            proc_root=self.proc_root,
+            uid=self.uid,
+        )
+        sessions = load_gemini_sessions(state_dir)
+        session_id = (
+            gemini_bound_session_id(hook_events, process, tty) if process else ""
+        )
+        if not session_id and process:
+            resumed = UUID_RE.search(command)
+            session_id = resumed.group(0) if resumed else ""
+        session = select_gemini_session(
+            sessions,
+            session_id=session_id,
+            project_root=cwd,
+            process_started_at=started_at,
+        )
+        model = (
+            (session.model if session else "")
+            or gemini_model_from_command(command)
+            or gemini_configured_model(state_dir)
+        )
+        if session is None:
+            return model, "", ""
+        return model, session.topic, session.session_id
 
     def runtime_snapshot(self, metadata: Metadata) -> RuntimeSnapshot:
         if not metadata.session_id:
