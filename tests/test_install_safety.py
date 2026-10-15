@@ -6,6 +6,7 @@ from pathlib import Path
 from contextlib import redirect_stdout
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).parents[1]
 
@@ -141,6 +142,7 @@ class InstallSafetyTests(unittest.TestCase):
             home = Path(directory)
             (home / ".codex").mkdir()
             (home / ".claude").mkdir()
+            (home / ".gemini").mkdir()
             (home / ".tmux.conf").write_text("set -g mouse off\n", encoding="utf-8")
             other = {
                 "hooks": {
@@ -151,9 +153,30 @@ class InstallSafetyTests(unittest.TestCase):
             }
             (home / ".codex/hooks.json").write_text(json.dumps(other), encoding="utf-8")
             (home / ".claude/settings.json").write_text("{}", encoding="utf-8")
+            gemini_settings = home / ".gemini/settings.json"
+            gemini_settings.write_text(
+                json.dumps(
+                    {
+                        "model": {"name": "gemini-test"},
+                        "hooks": {
+                            "AfterAgent": [
+                                {
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": "/usr/bin/true",
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             with redirect_stdout(io.StringIO()):
-                module.install(ROOT, home)
+                module.install(ROOT, home, gemini_settings_paths={gemini_settings})
             tmux_conf = (home / ".tmux.conf").read_text(encoding="utf-8")
             self.assertIn("# BEGIN tmuxcue", tmux_conf)
             codex = json.loads((home / ".codex/hooks.json").read_text(encoding="utf-8"))
@@ -164,6 +187,28 @@ class InstallSafetyTests(unittest.TestCase):
             ]
             self.assertIn("/usr/bin/true", commands)
             self.assertTrue(any("$HOME/.local/bin/tmuxcue-hook" in command for command in commands))
+            gemini = json.loads(gemini_settings.read_text(encoding="utf-8"))
+            self.assertEqual(gemini["model"]["name"], "gemini-test")
+            for event in (
+                "SessionStart",
+                "BeforeAgent",
+                "Notification",
+                "AfterAgent",
+                "SessionEnd",
+            ):
+                self.assertIn(event, gemini["hooks"])
+            after_commands = [
+                hook["command"]
+                for group in gemini["hooks"]["AfterAgent"]
+                for hook in group.get("hooks", [])
+            ]
+            self.assertIn("/usr/bin/true", after_commands)
+            registry = json.loads(
+                (home / ".config/tmuxcue/gemini-settings.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(registry["paths"], [str(gemini_settings.resolve())])
 
             with redirect_stdout(io.StringIO()):
                 module.uninstall(home)
@@ -175,6 +220,79 @@ class InstallSafetyTests(unittest.TestCase):
                 for hook in group.get("hooks", [])
             ]
             self.assertEqual(commands, ["/usr/bin/true"])
+            gemini = json.loads(gemini_settings.read_text(encoding="utf-8"))
+            after_commands = [
+                hook["command"]
+                for group in gemini["hooks"]["AfterAgent"]
+                for hook in group.get("hooks", [])
+            ]
+            self.assertEqual(after_commands, ["/usr/bin/true"])
+            self.assertNotIn("BeforeAgent", gemini.get("hooks", {}))
+            self.assertFalse(
+                (home / ".config/tmuxcue/gemini-settings.json").exists()
+            )
+
+    def test_invalid_gemini_settings_are_not_replaced(self):
+        loader = importlib.machinery.SourceFileLoader(
+            "configure_invalid", str(ROOT / "scripts/configure.py")
+        )
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            (home / ".codex").mkdir()
+            (home / ".claude").mkdir()
+            (home / ".gemini").mkdir()
+            (home / ".claude/settings.json").write_text("{}", encoding="utf-8")
+            path = home / ".gemini/settings.json"
+            original = b"{invalid json\n"
+            path.write_bytes(original)
+
+            with self.assertRaisesRegex(RuntimeError, "Invalid JSON settings file"):
+                module.install(ROOT, home, gemini_settings_paths={path})
+
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_running_custom_gemini_home_is_discovered(self):
+        loader = importlib.machinery.SourceFileLoader(
+            "configure_discovery", str(ROOT / "scripts/configure.py")
+        )
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "home"
+            custom = Path(directory) / "custom-home"
+            home.mkdir()
+            custom.mkdir()
+            with (
+                patch(
+                    "tmuxcue.processes.discover_agent_processes",
+                    return_value={
+                        ("/dev/pts/7", "gemini"): (
+                            321,
+                            900,
+                            "node /opt/node_modules/.bin/gemini",
+                        )
+                    },
+                ),
+                patch(
+                    "tmuxcue.processes.read_process_environment_value",
+                    return_value=str(custom),
+                ),
+            ):
+                paths = module.discover_gemini_settings_paths(ROOT, home)
+
+            self.assertEqual(
+                paths,
+                {
+                    (home / ".gemini/settings.json").resolve(),
+                    (custom / ".gemini/settings.json").resolve(),
+                },
+            )
 
 
 if __name__ == "__main__":

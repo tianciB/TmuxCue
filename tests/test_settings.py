@@ -28,6 +28,8 @@ class TitleModeTests(unittest.TestCase):
             (root / "claude").mkdir()
             codex = root / "codex/config.toml"
             claude = root / "claude/settings.json"
+            gemini = root / "gemini-home/.gemini/settings.json"
+            gemini.parent.mkdir(parents=True)
             codex.write_text(
                 '[tui]\nterminal_title = ["spinner", "project"]\n',
                 encoding="utf-8",
@@ -36,8 +38,26 @@ class TitleModeTests(unittest.TestCase):
                 json.dumps({"env": {"EXISTING": "1"}}),
                 encoding="utf-8",
             )
+            gemini.write_text(
+                json.dumps(
+                    {
+                        "ui": {
+                            "dynamicWindowTitle": True,
+                            "showStatusInTitle": True,
+                            "theme": "Default",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             with self.environment(root):
+                registry = settings.gemini_settings_registry_path()
+                registry.parent.mkdir(parents=True)
+                registry.write_text(
+                    json.dumps({"paths": [str(gemini)]}),
+                    encoding="utf-8",
+                )
                 self.assertEqual(settings.title_mode(), "native")
                 settings.apply_title_mode("override")
                 self.assertGreater(settings.title_override_since(), 0)
@@ -46,6 +66,10 @@ class TitleModeTests(unittest.TestCase):
                 value = json.loads(claude.read_text())
                 self.assertEqual(value["env"]["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"], "1")
                 self.assertEqual(value["env"]["EXISTING"], "1")
+                value = json.loads(gemini.read_text())
+                self.assertFalse(value["ui"]["dynamicWindowTitle"])
+                self.assertFalse(value["ui"]["showStatusInTitle"])
+                self.assertEqual(value["ui"]["theme"], "Default")
 
                 settings.apply_title_mode("native")
                 self.assertEqual(settings.title_override_since(), 0)
@@ -59,6 +83,37 @@ class TitleModeTests(unittest.TestCase):
                 value = json.loads(claude.read_text())
                 self.assertNotIn("CLAUDE_CODE_DISABLE_TERMINAL_TITLE", value["env"])
                 self.assertEqual(value["env"]["EXISTING"], "1")
+                value = json.loads(gemini.read_text())
+                self.assertTrue(value["ui"]["dynamicWindowTitle"])
+                self.assertTrue(value["ui"]["showStatusInTitle"])
+                self.assertEqual(value["ui"]["theme"], "Default")
+
+    def test_gemini_title_restore_removes_keys_added_by_tmuxcue(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "codex").mkdir()
+            (root / "claude").mkdir()
+            (root / "codex/config.toml").write_text("", encoding="utf-8")
+            (root / "claude/settings.json").write_text("{}", encoding="utf-8")
+            gemini = root / "gemini-home/.gemini/settings.json"
+            gemini.parent.mkdir(parents=True)
+            gemini.write_text(
+                json.dumps({"ui": {"theme": "Default"}}),
+                encoding="utf-8",
+            )
+
+            with self.environment(root):
+                registry = settings.gemini_settings_registry_path()
+                registry.parent.mkdir(parents=True)
+                registry.write_text(
+                    json.dumps({"paths": [str(gemini)]}),
+                    encoding="utf-8",
+                )
+                settings.apply_title_mode("override")
+                settings.apply_title_mode("native")
+
+            value = json.loads(gemini.read_text())
+            self.assertEqual(value, {"ui": {"theme": "Default"}})
 
     def test_source_directory_round_trip(self):
         with tempfile.TemporaryDirectory() as directory:

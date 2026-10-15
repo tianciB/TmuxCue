@@ -24,6 +24,34 @@ def state_path() -> Path:
     return config_dir() / "native-title-state.json"
 
 
+def gemini_settings_registry_path() -> Path:
+    return config_dir() / "gemini-settings.json"
+
+
+def managed_gemini_settings_paths() -> list[Path]:
+    try:
+        data = json.loads(
+            gemini_settings_registry_path().read_text(encoding="utf-8")
+        )
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return []
+    values = data.get("paths") if isinstance(data, dict) else None
+    if not isinstance(values, list):
+        return []
+    paths: list[Path] = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        path = Path(value)
+        if (
+            path.is_absolute()
+            and path.name == "settings.json"
+            and path.parent.name == ".gemini"
+        ):
+            paths.append(path)
+    return sorted(set(paths))
+
+
 def atomic_write(path: Path, text: str, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(path.parent, 0o700)
@@ -248,6 +276,80 @@ def _restore_claude_title(state: dict) -> None:
     atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
+def _load_json_settings(path: Path, label: str) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"Invalid {label} settings JSON: {path}") from error
+    if not isinstance(value, dict):
+        raise RuntimeError(f"Invalid {label} settings JSON: {path}")
+    return value
+
+
+def _disable_gemini_titles(state: dict) -> None:
+    gemini_state = state.setdefault("gemini", {})
+    for path in managed_gemini_settings_paths():
+        data = _load_json_settings(path, "Gemini")
+        ui = data.setdefault("ui", {})
+        if not isinstance(ui, dict):
+            raise RuntimeError(f"Invalid Gemini UI settings JSON: {path}")
+        gemini_state.setdefault(
+            str(path),
+            {
+                "dynamicWindowTitle": {
+                    "present": "dynamicWindowTitle" in ui,
+                    "value": ui.get("dynamicWindowTitle"),
+                },
+                "showStatusInTitle": {
+                    "present": "showStatusInTitle" in ui,
+                    "value": ui.get("showStatusInTitle"),
+                },
+            },
+        )
+        ui["dynamicWindowTitle"] = False
+        ui["showStatusInTitle"] = False
+        backup(path)
+        atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+def _restore_gemini_titles(state: dict) -> None:
+    gemini_state = state.get("gemini")
+    if not isinstance(gemini_state, dict):
+        return
+    for value, original in gemini_state.items():
+        path = Path(value)
+        if (
+            not path.is_absolute()
+            or path.name != "settings.json"
+            or path.parent.name != ".gemini"
+            or not path.exists()
+            or not isinstance(original, dict)
+        ):
+            continue
+        data = _load_json_settings(path, "Gemini")
+        ui = data.get("ui")
+        if not isinstance(ui, dict):
+            continue
+        changed = False
+        for key in ("dynamicWindowTitle", "showStatusInTitle"):
+            saved = original.get(key)
+            if not isinstance(saved, dict) or ui.get(key) is not False:
+                continue
+            if saved.get("present"):
+                ui[key] = saved.get("value")
+            else:
+                ui.pop(key, None)
+            changed = True
+        if not changed:
+            continue
+        if ui:
+            data["ui"] = ui
+        else:
+            data.pop("ui", None)
+        backup(path)
+        atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
 def apply_title_mode(mode: str) -> None:
     if mode not in {"override", "native"}:
         raise ValueError("terminal title mode must be 'override' or 'native'")
@@ -260,9 +362,12 @@ def apply_title_mode(mode: str) -> None:
         _save_state(state)
         _disable_claude_title(state)
         _save_state(state)
+        _disable_gemini_titles(state)
+        _save_state(state)
     else:
         _restore_codex_title(state)
         _restore_claude_title(state)
+        _restore_gemini_titles(state)
         try:
             state_path().unlink()
         except FileNotFoundError:
