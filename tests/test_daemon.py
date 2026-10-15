@@ -449,6 +449,31 @@ class DaemonTests(unittest.TestCase):
         _, tmux_title = IndicatorDaemon.format_title(pane, "running", metadata, 2)
         self.assertIn("[tmux]", tmux_title)
 
+    def test_gemini_uses_the_shared_tmux_title_format(self):
+        row = PaneRow(
+            "%3",
+            "gemini:0",
+            "gemini",
+            "working",
+            "/repo",
+            "",
+            "/dev/pts/7",
+        )
+        metadata = Metadata(
+            "gemini",
+            "gemini-test",
+            "Fix session binding",
+            "session-1",
+        )
+
+        icon, title = IndicatorDaemon.format_title(row, "running", metadata, 0)
+
+        self.assertEqual(icon, "🌑")
+        self.assertEqual(
+            title,
+            "🌑 [tmux] gemini/gemini-test: Fix session binding",
+        )
+
     def test_tmux_snippet_never_executes_shell_commands(self):
         snippet = (
             Path(__file__).parents[1] / "tmux" / "tmuxcue.conf"

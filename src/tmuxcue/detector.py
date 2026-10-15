@@ -31,9 +31,26 @@ CLAUDE_APPROVAL_PATTERNS = (
     r"elicitation",
 )
 
+GEMINI_APPROVAL_PATTERNS = (
+    r"allow execution\?",
+    r"action required",
+    r"waiting for approval",
+    r"permission (?:required|requested)",
+)
+
 WORKING_PATTERNS = (
     r"esc to interrupt",
     r"ctrl\+c to interrupt",
+)
+
+GEMINI_WORKING_PATTERNS = WORKING_PATTERNS + (
+    r"esc to cancel",
+    r"\bworking\b",
+)
+GEMINI_STATUS_TITLE = re.compile(
+    r"^[✦✋◇]\s*(?:working|action required|ready)"
+    r"(?:\s*\([^)]*\))?\s*$",
+    re.I,
 )
 
 
@@ -120,8 +137,10 @@ class TmuxDetector:
         self, current_command: str, tty: str, processes: ProcessSnapshot | None = None
     ) -> str:
         command = current_command.lower()
-        if command in {"codex", "claude", "claude-code"}:
-            return "claude" if command.startswith("claude") else "codex"
+        if command in {"codex", "claude", "claude-code", "gemini"}:
+            if command.startswith("claude"):
+                return "claude"
+            return command
         if not tty:
             return ""
         processes = self.processes if processes is None else processes
@@ -140,6 +159,8 @@ class TmuxDetector:
     @classmethod
     def title_subject(cls, title: str) -> str:
         value = (title or "").strip()
+        if GEMINI_STATUS_TITLE.fullmatch(value):
+            return ""
         if cls.title_is_working(value):
             value = value[1:].lstrip()
         return value.rsplit(" | ", 1)[0].strip()
@@ -152,17 +173,34 @@ class TmuxDetector:
         title_text = title or ""
         screen_lines = (screen or "").splitlines()
 
-        approval_patterns = (
-            CODEX_APPROVAL_PATTERNS if agent == "codex" else CLAUDE_APPROVAL_PATTERNS
-        )
-        if "action required" in title_text.lower():
+        if agent == "codex":
+            approval_patterns = CODEX_APPROVAL_PATTERNS
+            working_patterns = WORKING_PATTERNS
+        elif agent == "claude":
+            approval_patterns = CLAUDE_APPROVAL_PATTERNS
+            working_patterns = WORKING_PATTERNS
+        elif agent == "gemini":
+            approval_patterns = GEMINI_APPROVAL_PATTERNS
+            working_patterns = GEMINI_WORKING_PATTERNS
+        else:
+            approval_patterns = ()
+            working_patterns = WORKING_PATTERNS
+
+        stripped_title = title_text.lstrip()
+        lowered_title = stripped_title.lower()
+        if (
+            "action required" in lowered_title
+            or (agent == "gemini" and stripped_title.startswith("✋"))
+        ):
             return "blocked"
-        if self.title_is_working(title_text):
+        if self.title_is_working(title_text) or (
+            agent == "gemini" and stripped_title.startswith("✦")
+        ):
             return "working"
         approval_tail = "\n".join(screen_lines[-12:])
         if self.matches_any(approval_patterns, approval_tail):
             return "blocked"
         working_tail = "\n".join(screen_lines[-12:])
-        if self.matches_any(WORKING_PATTERNS, working_tail):
+        if self.matches_any(working_patterns, working_tail):
             return "working"
         return "idle"

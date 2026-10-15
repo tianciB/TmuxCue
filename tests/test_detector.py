@@ -76,6 +76,33 @@ class DetectorTests(unittest.TestCase):
         screen = "Enter to select · Esc to cancel"
         self.assertEqual(self.detector.detect_state("claude", "Claude Code", screen), "blocked")
 
+    def test_gemini_native_titles_map_to_shared_states(self):
+        self.assertEqual(
+            self.detector.detect_state("gemini", "✦ Working (repo)", ""),
+            "working",
+        )
+        self.assertEqual(
+            self.detector.detect_state("gemini", "✋ Action Required (repo)", ""),
+            "blocked",
+        )
+        self.assertEqual(
+            self.detector.detect_state("gemini", "◇ Ready (repo)", ""),
+            "idle",
+        )
+
+    def test_gemini_native_status_is_not_used_as_a_topic(self):
+        self.assertEqual(self.detector.title_subject("◇ Ready (repo)"), "")
+        self.assertEqual(self.detector.title_subject("✦ Working (repo)"), "")
+
+    def test_gemini_old_permission_text_outside_tail_is_ignored(self):
+        screen = "Allow execution?\n" + "\n".join(
+            f"output {index}" for index in range(13)
+        )
+        self.assertEqual(
+            self.detector.detect_state("gemini", "◇ Ready (repo)", screen),
+            "idle",
+        )
+
     def test_current_working_title_beats_old_approval_text(self):
         screen = "Press Enter to confirm or Esc to cancel"
         self.assertEqual(self.detector.detect_state("codex", "⠙ Codex", screen), "working")
