@@ -82,12 +82,40 @@ class DetectorTests(unittest.TestCase):
             "working",
         )
         self.assertEqual(
+            self.detector.detect_state("gemini", "⏲ Working… (repo)", ""),
+            "working",
+        )
+        self.assertEqual(
             self.detector.detect_state("gemini", "✋ Action Required (repo)", ""),
-            "blocked",
+            "working",
         )
         self.assertEqual(
             self.detector.detect_state("gemini", "◇ Ready (repo)", ""),
             "idle",
+        )
+
+    def test_gemini_action_title_with_confirmation_dialog_is_blocked(self):
+        screen = "Action Required\nAllow once\nAllow for this session"
+        self.assertEqual(
+            self.detector.detect_state(
+                "gemini",
+                "✋ Action Required (repo)",
+                screen,
+            ),
+            "blocked",
+        )
+
+    def test_old_gemini_confirmation_text_outside_tail_does_not_block(self):
+        screen = "Action Required\nAllow once\n" + "\n".join(
+            f"output {index}" for index in range(13)
+        )
+        self.assertEqual(
+            self.detector.detect_state(
+                "gemini",
+                "✋ Action Required (repo)",
+                screen,
+            ),
+            "working",
         )
 
     def test_gemini_native_status_is_not_used_as_a_topic(self):
@@ -95,6 +123,10 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(self.detector.title_subject("✦ Working (repo)"), "")
         self.assertEqual(
             self.detector.title_subject("✦ Reviewing changes (repo)"),
+            "",
+        )
+        self.assertEqual(
+            self.detector.title_subject("⏲ Working… (repo)"),
             "",
         )
 

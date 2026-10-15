@@ -33,6 +33,8 @@ CLAUDE_APPROVAL_PATTERNS = (
 
 GEMINI_APPROVAL_PATTERNS = (
     r"allow execution\?",
+    r"allow once",
+    r"allow for this session",
     r"action required",
     r"waiting for approval",
     r"permission (?:required|requested)",
@@ -153,7 +155,7 @@ class TmuxDetector:
     @classmethod
     def title_subject(cls, title: str) -> str:
         value = (title or "").strip()
-        if value.startswith(("✦", "✋", "◇")):
+        if value.startswith(("✦", "✋", "◇", "⏲")):
             return ""
         if cls.title_is_working(value):
             value = value[1:].lstrip()
@@ -182,18 +184,24 @@ class TmuxDetector:
 
         stripped_title = title_text.lstrip()
         lowered_title = stripped_title.lower()
-        if (
-            "action required" in lowered_title
-            or (agent == "gemini" and stripped_title.startswith("✋"))
-        ):
-            return "blocked"
-        if self.title_is_working(title_text) or (
-            agent == "gemini" and stripped_title.startswith("✦")
-        ):
-            return "working"
         approval_tail = "\n".join(screen_lines[-12:])
-        if self.matches_any(approval_patterns, approval_tail):
-            return "blocked"
+        has_approval_dialog = self.matches_any(approval_patterns, approval_tail)
+        if agent == "gemini":
+            if has_approval_dialog:
+                return "blocked"
+            if (
+                stripped_title.startswith(("✦", "✋", "⏲"))
+                or "action required" in lowered_title
+                or "working" in lowered_title
+            ):
+                return "working"
+        else:
+            if "action required" in lowered_title:
+                return "blocked"
+            if self.title_is_working(title_text):
+                return "working"
+            if has_approval_dialog:
+                return "blocked"
         working_tail = "\n".join(screen_lines[-12:])
         if self.matches_any(working_patterns, working_tail):
             return "working"

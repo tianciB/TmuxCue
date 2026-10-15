@@ -126,6 +126,43 @@ class DaemonTests(unittest.TestCase):
             "running",
         )
 
+    def test_gemini_working_scan_supersedes_older_permission_hook(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        row = PaneRow(
+            "%7",
+            "g:0",
+            "gemini",
+            "working",
+            "/repo",
+            "",
+            "/dev/pts/7",
+            321,
+            int(now - 100),
+            "node /opt/node_modules/.bin/gemini",
+        )
+        metadata = Metadata("gemini", "model", "topic", "session")
+        daemon.last_scan = now
+        daemon.metadata_resolver.runtime_snapshot = Mock(return_value=(None, 0.0))
+
+        raw_state = daemon.raw_state("g:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "working")
+        self.assertEqual(
+            daemon.resolve_state(
+                row,
+                raw_state,
+                None,
+                {
+                    "state": "approval",
+                    "event": "Notification",
+                    "timestamp": now - 5,
+                },
+                now,
+            ),
+            "running",
+        )
+
     def test_fresh_working_scan_supersedes_older_task_complete_and_stop(self):
         daemon = IndicatorDaemon()
         now = time.time()
