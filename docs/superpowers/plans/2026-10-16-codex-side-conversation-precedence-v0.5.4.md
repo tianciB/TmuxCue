@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+ standard library, unittest, tmux CLI, Bash, GitHub REST API.
 
-**Status:** Approved for inline execution.
+**Status:** Implemented, deployed, and released as v0.5.4.
 
 ## Global Constraints
 
@@ -34,7 +34,7 @@
 - Produces: `TmuxDetector.side_conversation_active(screen) -> bool`.
 - Extends: `PaneRow.side_active`.
 
-- [ ] **Step 1: Add PaneRow default test**
+- [x] **Step 1: Add PaneRow default test**
 
 Construct an existing positional `PaneRow` and assert:
 
@@ -42,7 +42,7 @@ Construct an existing positional `PaneRow` and assert:
 self.assertFalse(row.side_active)
 ```
 
-- [ ] **Step 2: Add bounded side-label tests**
+- [x] **Step 2: Add bounded side-label tests**
 
 Require:
 
@@ -66,12 +66,12 @@ self.assertFalse(
 
 Place an active-side label more than 20 lines above the bottom and assert false.
 
-- [ ] **Step 3: Add scan propagation test**
+- [x] **Step 3: Add scan propagation test**
 
 Mock `capture-pane` with an active side label and assert the resulting
 `PaneRow.side_active` is true.
 
-- [ ] **Step 4: Run tests and verify failure**
+- [x] **Step 4: Run tests and verify failure**
 
 Run:
 
@@ -96,7 +96,7 @@ Expected: missing `side_active` and side detector.
 - Adds: `PaneRow.side_active: bool = False`.
 - Adds: `TmuxDetector.side_conversation_active(screen)`.
 
-- [ ] **Step 1: Add the pane field**
+- [x] **Step 1: Add the pane field**
 
 Append:
 
@@ -106,7 +106,7 @@ side_active: bool = False
 
 to `PaneRow` so every existing positional constructor remains valid.
 
-- [ ] **Step 2: Implement bounded detection**
+- [x] **Step 2: Implement bounded detection**
 
 Use only the final 20 lines:
 
@@ -120,7 +120,7 @@ SIDE_CONTEXT = re.compile(
 
 Return true when any bounded line matches.
 
-- [ ] **Step 3: Propagate the flag from scan**
+- [x] **Step 3: Propagate the flag from scan**
 
 Pass:
 
@@ -130,7 +130,7 @@ side_active=self.side_conversation_active(screen)
 
 when constructing `PaneRow`.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run:
 
@@ -141,7 +141,7 @@ PYTHONPATH=src python3 tests/test_detector.py
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tmuxcue/core.py src/tmuxcue/detector.py \
@@ -161,7 +161,7 @@ git commit -m "feat: detect active Codex side conversations"
 - Consumes: `PaneRow.side_active`.
 - Preserves: public daemon method signatures.
 
-- [ ] **Step 1: Add state-precedence tests**
+- [x] **Step 1: Add state-precedence tests**
 
 Cover:
 
@@ -172,7 +172,7 @@ Cover:
 - side false + parent `goal_active` → running;
 - row identity differs when only `side_active` changes.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -182,12 +182,12 @@ PYTHONPATH=src python3 tests/test_daemon.py
 
 Expected: parent Goal/hook/prompt still overrides side state.
 
-- [ ] **Step 3: Include side state in identity**
+- [x] **Step 3: Include side state in identity**
 
 Append `row.side_active` to `row_identity()` and `metadata_source_key()` for
 tmux panes.
 
-- [ ] **Step 4: Bypass parent runtime**
+- [x] **Step 4: Bypass parent runtime**
 
 At the start of `raw_state()`:
 
@@ -197,7 +197,7 @@ if isinstance(row, PaneRow) and row.agent == "codex" and row.side_active:
     return row.state
 ```
 
-- [ ] **Step 5: Bypass parent prompt and hook**
+- [x] **Step 5: Bypass parent prompt and hook**
 
 In `apply_targets()`:
 
@@ -211,7 +211,7 @@ prompt = None if side_active else self.prompts.get(target)
 hook_event = None if side_active else existing_hook_lookup
 ```
 
-- [ ] **Step 6: Run focused and full tests**
+- [x] **Step 6: Run focused and full tests**
 
 Run:
 
@@ -222,7 +222,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 Expected: all tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/tmuxcue/service.py tests/test_daemon.py
@@ -243,15 +243,15 @@ git commit -m "fix: prioritize active Codex side state"
 **Interfaces:**
 - Produces: public v0.5.4 version and side-precedence documentation.
 
-- [ ] **Step 1: Require v0.5.4 in the CLI test**
+- [x] **Step 1: Require v0.5.4 in the CLI test**
 
-- [ ] **Step 2: Run the CLI test and verify failure**
+- [x] **Step 2: Run the CLI test and verify failure**
 
 ```bash
 PYTHONPATH=src python3 tests/test_cli.py
 ```
 
-- [ ] **Step 3: Update version and documentation**
+- [x] **Step 3: Update version and documentation**
 
 Set both version sources to `0.5.4`.
 
@@ -262,14 +262,14 @@ Document:
 - switching back restores parent Goal;
 - side detection is bounded and does not use subagent edges.
 
-- [ ] **Step 4: Run full tests**
+- [x] **Step 4: Run full tests**
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 git diff --check
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md docs/ARCHITECTURE.md pyproject.toml \
@@ -290,22 +290,22 @@ git commit -m "chore: release version 0.5.4"
 - Produces: local deployment, pushed main branch, annotated tag, and latest
   GitHub Release.
 
-- [ ] **Step 1: Capture identity snapshots**
+- [x] **Step 1: Capture identity snapshots**
 
 Capture the tmux server, pane PID list, and
 `tmuxcue __process-snapshot` output.
 
-- [ ] **Step 2: Install and compare**
+- [x] **Step 2: Install and compare**
 
 Run `./install.sh`, compare snapshots exactly, and require the service active.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 If a side conversation is currently displayed, verify its state is
 authoritative. Otherwise verify synthetic regressions plus unchanged live
 parent Goal behavior.
 
-- [ ] **Step 4: Record and commit deployment**
+- [x] **Step 4: Record and commit deployment**
 
 Mark the design and plan implemented, then commit with:
 
@@ -313,7 +313,20 @@ Mark the design and plan implemented, then commit with:
 git commit -m "docs: record v0.5.4 deployment"
 ```
 
-- [ ] **Step 5: Push, tag, and publish**
+- [x] **Step 5: Push, tag, and publish**
 
 Push `main`, create and push annotated `v0.5.4`, then create a non-draft,
 non-prerelease latest GitHub Release named `TmuxCue v0.5.4`.
+
+## Execution record
+
+- All 122 unit and privacy tests passed.
+- The installed package reports `TmuxCue 0.5.4`.
+- The tmux server, all 62 pane identities, and all 11 detected AI process
+  identities were unchanged across installation.
+- Only `tmuxcue.service` restarted, and it remained active.
+- The installed side-precedence regression passed.
+- No side conversation was displayed during live verification; the exact
+  parent Goal remained `goal_active` and the window remained running.
+- `main`, annotated tag `v0.5.4`, and the latest GitHub Release were
+  published.

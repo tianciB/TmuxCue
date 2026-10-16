@@ -1,7 +1,7 @@
 # Codex Side Conversation Precedence Design
 
 **Date:** 2026-10-16
-**Status:** Approved
+**Status:** Implemented, deployed, and released
 **Target release:** v0.5.4
 
 ## Problem
@@ -161,3 +161,16 @@ Add regression coverage for:
    detected AI process identity unchanged.
 7. v0.5.4 is pushed to `main`, tagged, and published as the latest GitHub
    Release.
+
+## Implementation record
+
+- Implemented the bounded side-context detector and pane identity field.
+- Made displayed Codex side state bypass parent Goal/runtime, hook, and prompt
+  state.
+- Passed all 122 unit and privacy tests.
+- Installed v0.5.4 with the tmux server, all 62 pane identities, and all 11
+  detected AI process identities unchanged.
+- Verified the installed side-precedence regression and unchanged parent Goal
+  behavior when no side conversation is displayed.
+- Restarted only `tmuxcue.service` and confirmed it remained active.
+- Published v0.5.4 from `main` as an annotated tag and latest GitHub Release.
