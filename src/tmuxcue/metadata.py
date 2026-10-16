@@ -142,6 +142,57 @@ class MetadataResolver:
         )
         return databases[0] if databases else None
 
+    def codex_goals_database(self) -> Path | None:
+        try:
+            databases = sorted(
+                self.codex_home.glob("goals_*.sqlite"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            return None
+        return databases[0] if databases else None
+
+    def codex_goal_snapshot(self, session_id: str) -> RuntimeSnapshot:
+        database = self.codex_goals_database()
+        if database is None or not session_id:
+            return None, 0.0
+        try:
+            connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+            row = connection.execute(
+                """
+                select status, updated_at_ms
+                  from thread_goals
+                 where thread_id=?
+                """,
+                (session_id,),
+            ).fetchone()
+        except sqlite3.Error:
+            return None, 0.0
+        finally:
+            try:
+                connection.close()
+            except (UnboundLocalError, sqlite3.Error):
+                pass
+        if not row:
+            return None, 0.0
+        states = {
+            "active": "goal_active",
+            "blocked": "goal_blocked",
+            "paused": "idle",
+            "complete": "idle",
+            "usage_limited": "idle",
+            "budget_limited": "idle",
+        }
+        state = states.get(str(row[0] or ""))
+        try:
+            timestamp = float(row[1]) / 1000
+        except (TypeError, ValueError):
+            timestamp = 0.0
+        if state is None or timestamp <= 0:
+            return None, 0.0
+        return state, timestamp
+
     def codex_open_session_ids(self, pid: int) -> set[str]:
         if pid <= 0:
             return set()
@@ -364,6 +415,9 @@ class MetadataResolver:
         if not metadata.session_id:
             return None, 0.0
         if metadata.agent == "codex":
+            goal_state, goal_time = self.codex_goal_snapshot(metadata.session_id)
+            if goal_state is not None:
+                return goal_state, goal_time
             return self.codex_runtime_snapshot(metadata.session_id)
         if metadata.agent == "claude":
             return self.claude_runtime_snapshot(metadata.session_id)

@@ -63,6 +63,26 @@ def create_log_database(
     connection.close()
 
 
+def create_goal_database(path: Path, rows: list[tuple[str, str, int]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path)
+    connection.execute(
+        """
+        create table thread_goals (
+            thread_id text primary key,
+            status text not null,
+            updated_at_ms integer not null
+        )
+        """
+    )
+    connection.executemany(
+        "insert into thread_goals values (?, ?, ?)",
+        rows,
+    )
+    connection.commit()
+    connection.close()
+
+
 class ProcessDiscoveryTests(unittest.TestCase):
     def test_proc_scan_returns_only_owned_foreground_agents(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -563,6 +583,125 @@ class CodexMetadataTests(unittest.TestCase):
 
 
 class RuntimeStateTests(unittest.TestCase):
+    def test_codex_goal_snapshot_maps_exact_durable_states(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            codex = home / ".codex"
+            codex.mkdir()
+            create_goal_database(
+                codex / "goals_1.sqlite",
+                [
+                    ("active-thread", "active", 123_000),
+                    ("blocked-thread", "blocked", 124_000),
+                    ("paused-thread", "paused", 125_000),
+                    ("complete-thread", "complete", 126_000),
+                    ("usage-thread", "usage_limited", 127_000),
+                    ("budget-thread", "budget_limited", 128_000),
+                ],
+            )
+            resolver = MetadataResolver(home=home)
+
+            self.assertEqual(
+                resolver.codex_goal_snapshot("active-thread"),
+                ("goal_active", 123.0),
+            )
+            self.assertEqual(
+                resolver.codex_goal_snapshot("blocked-thread"),
+                ("goal_blocked", 124.0),
+            )
+            for session_id, timestamp in (
+                ("paused-thread", 125.0),
+                ("complete-thread", 126.0),
+                ("usage-thread", 127.0),
+                ("budget-thread", 128.0),
+            ):
+                self.assertEqual(
+                    resolver.codex_goal_snapshot(session_id),
+                    ("idle", timestamp),
+                )
+
+    def test_codex_goal_lookup_is_exact_and_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            codex = home / ".codex"
+            codex.mkdir()
+            create_goal_database(
+                codex / "goals_1.sqlite",
+                [
+                    ("other-thread", "active", 123_000),
+                    ("unknown-thread", "future_status", 124_000),
+                ],
+            )
+            resolver = MetadataResolver(home=home)
+
+            self.assertEqual(
+                resolver.codex_goal_snapshot("missing-thread"),
+                (None, 0.0),
+            )
+            self.assertEqual(
+                resolver.codex_goal_snapshot("unknown-thread"),
+                (None, 0.0),
+            )
+
+            (codex / "goals_1.sqlite").unlink()
+            (codex / "goals_1.sqlite").write_text(
+                "not a sqlite database",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                resolver.codex_goal_snapshot("other-thread"),
+                (None, 0.0),
+            )
+
+    def test_runtime_snapshot_prefers_goal_and_falls_back_without_one(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            codex = home / ".codex"
+            codex.mkdir()
+            create_goal_database(
+                codex / "goals_1.sqlite",
+                [("goal-thread", "active", 123_000)],
+            )
+            rollout = codex / "rollout.jsonl"
+            rollout.write_text(
+                json.dumps(
+                    {
+                        "timestamp": "2026-10-16T06:00:00Z",
+                        "type": "event_msg",
+                        "payload": {"type": "task_started"},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            database = codex / "state_1.sqlite"
+            connection = sqlite3.connect(database)
+            connection.execute(
+                "create table threads (id text primary key, rollout_path text)"
+            )
+            connection.executemany(
+                "insert into threads values (?, ?)",
+                [
+                    ("goal-thread", str(rollout)),
+                    ("plain-thread", str(rollout)),
+                ],
+            )
+            connection.commit()
+            connection.close()
+            resolver = MetadataResolver(home=home)
+
+            self.assertEqual(
+                resolver.runtime_snapshot(
+                    Metadata("codex", "model", "topic", "goal-thread")
+                ),
+                ("goal_active", 123.0),
+            )
+            state, timestamp = resolver.runtime_snapshot(
+                Metadata("codex", "model", "topic", "plain-thread")
+            )
+            self.assertEqual(state, "working")
+            self.assertGreater(timestamp, 0)
+
     def test_codex_runtime_state_follows_latest_task_event(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
