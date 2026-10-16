@@ -329,7 +329,14 @@ class IndicatorDaemon:
         return {target for target, row in self.rows.items() if row.agent in agents}
 
     def raw_state(self, target: str, row: AgentRow, metadata: Metadata, now: float) -> str:
-        if isinstance(row, PaneRow) and row.state != "working":
+        if isinstance(row, PaneRow) and row.state == "blocked":
+            self.raw_observation_times[target] = self.last_scan
+            return row.state
+        if (
+            isinstance(row, PaneRow)
+            and row.state != "working"
+            and row.agent != "claude"
+        ):
             self.raw_observation_times[target] = self.last_scan
             return row.state
 
@@ -355,12 +362,15 @@ class IndicatorDaemon:
                     self.raw_observation_times[target] = self.last_scan
                     return "working"
             observation_time = event_time or self.runtime_times.get(target, now)
-            if (
-                runtime_state == "working"
-                and isinstance(row, PaneRow)
-                and row.state == "working"
-            ):
-                observation_time = max(observation_time, self.last_scan)
+            if runtime_state == "working" and isinstance(row, PaneRow):
+                if row.agent == "claude":
+                    observation_time = max(
+                        observation_time,
+                        self.last_scan,
+                        self.runtime_times.get(target, now),
+                    )
+                elif row.state == "working":
+                    observation_time = max(observation_time, self.last_scan)
             self.raw_observation_times[target] = observation_time
             if runtime_state == "working":
                 return "working"

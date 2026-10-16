@@ -76,6 +76,16 @@ class DetectorTests(unittest.TestCase):
         screen = "Enter to select · Esc to cancel"
         self.assertEqual(self.detector.detect_state("claude", "Claude Code", screen), "blocked")
 
+    def test_static_claude_session_title_is_not_working_evidence(self):
+        self.assertEqual(
+            self.detector.detect_state(
+                "claude",
+                "✳ Derived session title",
+                "",
+            ),
+            "idle",
+        )
+
     def test_gemini_native_titles_map_to_shared_states(self):
         self.assertEqual(
             self.detector.detect_state("gemini", "✦ Working (repo)", ""),

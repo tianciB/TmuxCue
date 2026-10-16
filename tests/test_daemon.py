@@ -163,6 +163,125 @@ class DaemonTests(unittest.TestCase):
             "running",
         )
 
+    def test_claude_busy_runtime_promotes_an_idle_native_pane(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        daemon.last_scan = now
+        row = PaneRow(
+            "%8",
+            "g:0",
+            "claude",
+            "idle",
+            "/repo",
+            "",
+            "/dev/pts/8",
+            401,
+            int(now - 100),
+            "claude",
+        )
+        metadata = Metadata("claude", "gemini-test", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("working", now - 30)
+        )
+
+        raw_state = daemon.raw_state("g:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "working")
+        self.assertEqual(daemon.observation_time(row), now)
+        self.assertEqual(
+            daemon.resolve_state(
+                row,
+                raw_state,
+                None,
+                {
+                    "state": "done",
+                    "event": "Stop",
+                    "timestamp": now - 5,
+                },
+                now,
+            ),
+            "running",
+        )
+
+    def test_claude_blocked_pane_beats_busy_runtime(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        daemon.last_scan = now
+        row = PaneRow(
+            "%8",
+            "g:0",
+            "claude",
+            "blocked",
+            "/repo",
+            "",
+            "/dev/pts/8",
+        )
+        metadata = Metadata("claude", "model", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("working", now)
+        )
+
+        raw_state = daemon.raw_state("g:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "blocked")
+        daemon.metadata_resolver.runtime_snapshot.assert_not_called()
+        self.assertEqual(
+            daemon.resolve_state(row, raw_state, None, None, now),
+            "approval",
+        )
+
+    def test_claude_idle_runtime_and_missing_runtime_remain_idle(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        daemon.last_scan = now
+        row = PaneRow(
+            "%8",
+            "g:0",
+            "claude",
+            "idle",
+            "/repo",
+            "",
+            "/dev/pts/8",
+        )
+        metadata = Metadata("claude", "model", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("idle", now)
+        )
+
+        self.assertEqual(daemon.raw_state("g:0", row, metadata, now), "idle")
+        daemon.metadata_resolver.runtime_snapshot.assert_called_once()
+
+        daemon.runtime_times["g:0"] = 0
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=(None, 0.0)
+        )
+        self.assertEqual(
+            daemon.raw_state("g:0", row, metadata, now + 2),
+            "idle",
+        )
+        daemon.metadata_resolver.runtime_snapshot.assert_called_once()
+
+    def test_codex_idle_pane_does_not_use_runtime_promotion(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        daemon.last_scan = now
+        row = PaneRow(
+            "%1",
+            "s:0",
+            "codex",
+            "idle",
+            "/repo",
+            "",
+            "/dev/pts/1",
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("working", now)
+        )
+
+        self.assertEqual(daemon.raw_state("s:0", row, metadata, now), "idle")
+        daemon.metadata_resolver.runtime_snapshot.assert_not_called()
+
     def test_fresh_working_scan_supersedes_older_task_complete_and_stop(self):
         daemon = IndicatorDaemon()
         now = time.time()
