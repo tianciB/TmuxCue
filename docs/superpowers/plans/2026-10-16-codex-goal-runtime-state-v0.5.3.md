@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+ standard library, sqlite3, unittest, tmux CLI, Bash, GitHub REST API.
 
-**Status:** Approved for inline execution.
+**Status:** Implemented and locally deployed on 2026-10-16.
 
 ## Global Constraints
 
@@ -34,7 +34,7 @@
 - Consumes: new `MetadataResolver.codex_goal_snapshot(session_id)`.
 - Produces: Goal state mapping and exact-thread safety expectations.
 
-- [ ] **Step 1: Add a Goal database fixture**
+- [x] **Step 1: Add a Goal database fixture**
 
 Add:
 
@@ -58,7 +58,7 @@ def create_goal_database(path: Path, rows: list[tuple]) -> None:
     connection.close()
 ```
 
-- [ ] **Step 2: Add exact mapping tests**
+- [x] **Step 2: Add exact mapping tests**
 
 Cover:
 
@@ -70,7 +70,7 @@ resolver.codex_goal_snapshot(paused_id) == ("idle", 125.0)
 
 Also cover `complete`, `usage_limited`, and `budget_limited` as idle.
 
-- [ ] **Step 3: Add safety and fallback tests**
+- [x] **Step 3: Add safety and fallback tests**
 
 Assert:
 
@@ -80,7 +80,7 @@ Assert:
 - `runtime_snapshot()` uses Goal state when a valid row exists;
 - no-Goal threads continue through `codex_runtime_snapshot()`.
 
-- [ ] **Step 4: Run tests and verify failure**
+- [x] **Step 4: Run tests and verify failure**
 
 Run:
 
@@ -103,7 +103,7 @@ Expected: missing `codex_goal_snapshot`.
   `codex_goal_snapshot(session_id) -> RuntimeSnapshot`.
 - Extends: `runtime_snapshot(metadata)`.
 
-- [ ] **Step 1: Discover the newest Goal database**
+- [x] **Step 1: Discover the newest Goal database**
 
 Implement:
 
@@ -119,7 +119,7 @@ def codex_goals_database(self) -> Path | None:
 
 Catch disappearing/unreadable files and return no database.
 
-- [ ] **Step 2: Query and map the exact thread Goal**
+- [x] **Step 2: Query and map the exact thread Goal**
 
 Use:
 
@@ -144,7 +144,7 @@ states = {
 
 Return milliseconds as seconds and fail closed on any SQLite/type/status error.
 
-- [ ] **Step 3: Prefer valid Goal state in runtime resolution**
+- [x] **Step 3: Prefer valid Goal state in runtime resolution**
 
 For Codex:
 
@@ -155,7 +155,7 @@ if goal_state is not None:
 return self.codex_runtime_snapshot(metadata.session_id)
 ```
 
-- [ ] **Step 4: Run metadata tests**
+- [x] **Step 4: Run metadata tests**
 
 Run:
 
@@ -165,7 +165,7 @@ PYTHONPATH=src python3 tests/test_metadata.py
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tmuxcue/metadata.py tests/test_metadata.py
@@ -184,7 +184,7 @@ git commit -m "feat: read durable Codex Goal state"
 - Consumes: runtime states `goal_active` and `goal_blocked`.
 - Preserves: `raw_state()` and `resolve_state()` public signatures.
 
-- [ ] **Step 1: Add daemon regression tests**
+- [x] **Step 1: Add daemon regression tests**
 
 Cover:
 
@@ -195,7 +195,7 @@ Cover:
 - idle Codex pane + Goal idle → remains idle;
 - blocked pane still returns blocked before runtime polling.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -205,7 +205,7 @@ PYTHONPATH=src python3 tests/test_daemon.py
 
 Expected: idle Codex panes return before Goal runtime polling.
 
-- [ ] **Step 3: Allow scoped Codex runtime polling**
+- [x] **Step 3: Allow scoped Codex runtime polling**
 
 Keep blocked panes as an immediate return. Let idle Codex panes poll runtime,
 then apply:
@@ -221,7 +221,7 @@ if (
     return row.state
 ```
 
-- [ ] **Step 4: Map Goal-specific states**
+- [x] **Step 4: Map Goal-specific states**
 
 For `goal_active`:
 
@@ -238,7 +238,7 @@ For `goal_blocked`, record the same fresh observation and return `blocked`.
 
 Terminal rows use `runtime_times[target]` as their current Goal observation.
 
-- [ ] **Step 5: Run focused and full regressions**
+- [x] **Step 5: Run focused and full regressions**
 
 Run:
 
@@ -249,7 +249,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/tmuxcue/service.py tests/test_daemon.py
@@ -270,11 +270,11 @@ git commit -m "feat: supervise active Codex Goals"
 **Interfaces:**
 - Produces: public v0.5.3 version and Goal-state documentation.
 
-- [ ] **Step 1: Add the failing version assertion**
+- [x] **Step 1: Add the failing version assertion**
 
 Require `TmuxCue 0.5.3` in the CLI test.
 
-- [ ] **Step 2: Run the CLI test and verify failure**
+- [x] **Step 2: Run the CLI test and verify failure**
 
 Run:
 
@@ -282,7 +282,7 @@ Run:
 PYTHONPATH=src python3 tests/test_cli.py
 ```
 
-- [ ] **Step 3: Update version and documentation**
+- [x] **Step 3: Update version and documentation**
 
 Set both version sources to `0.5.3`.
 
@@ -294,7 +294,7 @@ Document:
 - paused/complete/limited Goal → done;
 - Goal lookup is exact-thread and read-only.
 
-- [ ] **Step 4: Run full tests**
+- [x] **Step 4: Run full tests**
 
 Run:
 
@@ -303,7 +303,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 git diff --check
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md docs/ARCHITECTURE.md pyproject.toml \
@@ -324,17 +324,17 @@ git commit -m "chore: release version 0.5.3"
 - Produces: local deployment, pushed main branch, annotated tag, and latest
   GitHub Release.
 
-- [ ] **Step 1: Capture read-only identity snapshots**
+- [x] **Step 1: Capture read-only identity snapshots**
 
 Capture the tmux server, pane PID list, and
 `tmuxcue __process-snapshot` output.
 
-- [ ] **Step 2: Install and compare identities**
+- [x] **Step 2: Install and compare identities**
 
 Run `./install.sh`, compare all snapshots exactly, and require the user service
 to remain active.
 
-- [ ] **Step 3: Verify the live affected pane**
+- [x] **Step 3: Verify the live affected pane**
 
 Use read-only queries and require:
 
@@ -344,12 +344,12 @@ Use read-only queries and require:
 - background terminal text is not used as the evidence;
 - no pane or AI process identity changed.
 
-- [ ] **Step 4: Record deployment results**
+- [x] **Step 4: Record deployment results**
 
 Mark the design implemented and locally deployed. Record only generic counts
 and pass/fail results.
 
-- [ ] **Step 5: Commit and push main**
+- [x] **Step 5: Commit and push main**
 
 ```bash
 git add docs/superpowers/specs/2026-10-16-codex-goal-runtime-state-design.md \
@@ -358,7 +358,7 @@ git commit -m "docs: record v0.5.3 deployment"
 git push origin main
 ```
 
-- [ ] **Step 6: Tag and publish**
+- [x] **Step 6: Tag and publish**
 
 ```bash
 git tag -a v0.5.3 -m "TmuxCue v0.5.3"
@@ -368,3 +368,16 @@ git push origin v0.5.3
 Create a non-draft, non-prerelease latest GitHub Release named
 `TmuxCue v0.5.3` with the Goal-state mapping, exact-thread safety, tests, live
 verification, and identity-preservation results.
+
+## Execution record
+
+- All 111 unit tests passed.
+- TmuxCue v0.5.3 was installed and the user service remained active.
+- The tmux server, 60 pane identities, and 12 detected AI process identities
+  matched exactly before and after installation.
+- The live affected pane's exact durable Goal state remained active.
+- TmuxCue displayed the live pane as running with a moon icon.
+- Goal state came from the exact read-only Goal database row, not background
+  terminal text or rollout prompt content.
+- No key, attach command, signal, or process-control action was sent to any
+  session.

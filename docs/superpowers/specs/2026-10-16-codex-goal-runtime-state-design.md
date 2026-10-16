@@ -1,7 +1,7 @@
 # Codex Goal Runtime State Design
 
 **Date:** 2026-10-16
-**Status:** Approved
+**Status:** Implemented and locally deployed
 **Target release:** v0.5.3
 
 ## Problem
@@ -181,3 +181,22 @@ Add regression coverage for:
    detected AI process identity unchanged.
 8. v0.5.3 is pushed to `main`, tagged, and published as the latest GitHub
    Release.
+
+## Verification
+
+Local verification on 2026-10-16 completed successfully:
+
+- all 111 unit tests passed;
+- dependency and tmux checks passed;
+- the installed CLI reports v0.5.3;
+- the TmuxCue user service is active;
+- the tmux server identity remained unchanged;
+- all 60 existing tmux pane identities remained unchanged;
+- all 12 detected Codex, Claude, and Gemini process identities remained
+  unchanged;
+- the affected pane remained bound to the exact Codex thread whose durable
+  Goal status was active;
+- TmuxCue rendered that pane as running with the shared moon icon and Codex
+  title layout;
+- background-terminal text was not used as Goal evidence;
+- no pane or AI process received input or a signal.
