@@ -21,6 +21,8 @@ TmuxCue uses native operating-system and tmux interfaces only:
 - local Codex, Claude, and Gemini metadata for model and topic labels;
 - read-only Codex, Claude, and bound Gemini session records for direct
   terminals.
+- exact-thread Codex Goal state from the read-only `goals_*.sqlite`
+  `thread_goals` table.
 
 Direct-terminal discovery excludes every TTY owned by a tmux pane.
 
@@ -70,6 +72,14 @@ session name. Each current read of that busy state can supersede an older
 intermediate `Stop` event from a custom model backend. A blocked pane remains
 approval, and an idle runtime state remains done. The static `✳` title prefix
 is not independently treated as a spinner.
+
+Codex Goal state is distinct from turn state and detached background terminal
+state. An exact Goal status of `active` is current working evidence even while
+the thread is between continuation turns. `blocked` maps to approval;
+`paused`, `complete`, `usage_limited`, and `budget_limited` map to done.
+Ordinary rollout `task_started` evidence cannot promote an idle pane unless
+the native pane also shows work, which prevents stale rollout events from
+reviving completed non-Goal sessions.
 
 ## Installation layout
 

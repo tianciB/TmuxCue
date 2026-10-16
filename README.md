@@ -94,6 +94,21 @@ Before trusting them, verify that:
 
 The hooks only record the agent, session ID, state, event name, and timestamp. They do not approve permissions, execute requested tools, or store prompt content.
 
+## Codex Goal mode
+
+TmuxCue distinguishes the current Codex turn, detached background terminals,
+and the durable Codex Goal:
+
+- an exact bound Goal with status `active` keeps the running moon visible
+  between continuation turns;
+- `blocked` shows `❓`;
+- `paused`, `complete`, `usage_limited`, and `budget_limited` show `✅`;
+- a `N background terminal(s) running` message alone does not change state.
+
+Goal state is read by exact thread ID from Codex's local `goals_*.sqlite`
+database in read-only mode. TmuxCue queries only the status and update time; it
+does not read or store the Goal objective, budget, or usage details.
+
 ## Review Gemini hooks
 
 After installation, enter `/hooks panel` in Gemini CLI and review the five
