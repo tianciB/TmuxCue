@@ -22,6 +22,7 @@ class PaneRow:
     pid: int = 0
     started_at: int = 0
     cmdline: str = ""
+    side_active: bool = False
 
 
 @dataclass(frozen=True)

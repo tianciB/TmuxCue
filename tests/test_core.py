@@ -6,6 +6,7 @@ import unittest
 
 from tmuxcue.core import (
     JsonlTail,
+    PaneRow,
     is_generic_input,
     shorten,
     visual_state,
@@ -13,6 +14,10 @@ from tmuxcue.core import (
 
 
 class CoreTests(unittest.TestCase):
+    def test_pane_row_side_active_defaults_false(self):
+        row = PaneRow("%1", "s:0", "codex", "idle", "/tmp", "")
+        self.assertFalse(row.side_active)
+
     def test_jsonl_tail_reads_only_new_records(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "history.jsonl"

@@ -50,6 +50,13 @@ GEMINI_WORKING_PATTERNS = WORKING_PATTERNS + (
     r"\bworking\b",
 )
 
+SIDE_CONTEXT = re.compile(
+    r"^\s*Side from (?:main thread|parent thread(?:\s*\([^)]*\))?)"
+    r"(?:\s|·|$)",
+    re.I,
+)
+
+
 class TmuxDetector:
     """Detect Codex, Claude, and Gemini panes from native tmux state."""
 
@@ -123,6 +130,7 @@ class TmuxDetector:
                 pid,
                 started_at,
                 cmdline,
+                side_active=self.side_conversation_active(screen),
             )
             previous = selected.get(window)
             if previous is None or PRIORITY.get(state, 0) > PRIORITY.get(previous.state, 0):
@@ -164,6 +172,13 @@ class TmuxDetector:
     @staticmethod
     def matches_any(patterns: tuple[str, ...], text: str) -> bool:
         return any(re.search(pattern, text, flags=re.I | re.S) for pattern in patterns)
+
+    @staticmethod
+    def side_conversation_active(screen: str) -> bool:
+        return any(
+            SIDE_CONTEXT.search(line)
+            for line in (screen or "").splitlines()[-20:]
+        )
 
     def detect_state(self, agent: str, title: str, screen: str) -> str:
         title_text = title or ""

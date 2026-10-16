@@ -7,6 +7,48 @@ class DetectorTests(unittest.TestCase):
     def setUp(self):
         self.detector = TmuxDetector(command=lambda _args, _timeout=5: "")
 
+    def test_side_conversation_active_matches_main_thread_label(self):
+        self.assertTrue(
+            self.detector.side_conversation_active(
+                "output\nSide from main thread · ctrl+c to close"
+            )
+        )
+
+    def test_side_conversation_active_matches_named_parent_label(self):
+        self.assertTrue(
+            self.detector.side_conversation_active(
+                "Side from parent thread (task) · ctrl+c to close"
+            )
+        )
+
+    def test_side_conversation_active_ignores_parent_view_hint(self):
+        self.assertFalse(
+            self.detector.side_conversation_active("ctrl+x for side")
+        )
+
+    def test_side_conversation_active_is_bounded_to_last_twenty_lines(self):
+        screen = "Side from main thread\n" + "\n".join(
+            f"output {index}" for index in range(20)
+        )
+        self.assertFalse(self.detector.side_conversation_active(screen))
+
+    def test_scan_propagates_active_side_context(self):
+        def command(args, _timeout=5):
+            if args[:3] == ("tmux", "list-panes", "-a"):
+                return "%1\ts:0.0\tcodex\t/tmp\tCodex\t/dev/pts/1"
+            if len(args) > 1 and args[1] == "capture-pane":
+                return "Side from main thread · ctrl+c to close"
+            return ""
+
+        detector = TmuxDetector(
+            command=command,
+            process_provider=lambda _root, _uid: {},
+        )
+
+        rows = detector.scan()
+
+        self.assertTrue(rows["s:0"].side_active)
+
     def test_scan_reuses_process_snapshot_for_wrapped_agent(self):
         commands = []
 
