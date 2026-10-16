@@ -298,6 +298,153 @@ class DaemonTests(unittest.TestCase):
             "running",
         )
 
+    def test_active_side_idle_ignores_parent_goal(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        daemon.last_scan = now
+        row = PaneRow(
+            "%1",
+            "s:0",
+            "codex",
+            "idle",
+            "/repo",
+            "",
+            "/dev/pts/1",
+            side_active=True,
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("goal_active", now - 30)
+        )
+
+        raw_state = daemon.raw_state("s:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "idle")
+        self.assertEqual(
+            daemon.resolve_state(row, raw_state, None, None, now),
+            "done",
+        )
+        daemon.metadata_resolver.runtime_snapshot.assert_not_called()
+
+    def test_active_side_working_ignores_parent_done_hook(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        daemon.last_scan = now
+        row = PaneRow(
+            "%1",
+            "s:0",
+            "codex",
+            "working",
+            "/repo",
+            "",
+            "/dev/pts/1",
+            side_active=True,
+        )
+        daemon.rows = {"s:0": row}
+        daemon.metadata = {
+            "s:0": Metadata("codex", "model", "topic", "session")
+        }
+        daemon.tmux.set_many = Mock(return_value=True)
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("idle", now)
+        )
+
+        changed = daemon.apply_targets(
+            {"s:0"},
+            {
+                ("codex", "session"): {
+                    "state": "done",
+                    "timestamp": now + 1,
+                }
+            },
+            now,
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(daemon.applied["s:0"][0], "running")
+        daemon.metadata_resolver.runtime_snapshot.assert_not_called()
+
+    def test_active_side_blocked_ignores_parent_goal(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        daemon.last_scan = now
+        row = PaneRow(
+            "%1",
+            "s:0",
+            "codex",
+            "blocked",
+            "/repo",
+            "",
+            "/dev/pts/1",
+            side_active=True,
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("goal_active", now - 30)
+        )
+
+        raw_state = daemon.raw_state("s:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "blocked")
+        self.assertEqual(
+            daemon.resolve_state(row, raw_state, None, None, now),
+            "approval",
+        )
+        daemon.metadata_resolver.runtime_snapshot.assert_not_called()
+
+    def test_active_side_ignores_parent_prompt_grace(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        daemon.last_scan = now
+        row = PaneRow(
+            "%1",
+            "s:0",
+            "codex",
+            "idle",
+            "/repo",
+            "",
+            "/dev/pts/1",
+            side_active=True,
+        )
+        daemon.rows = {"s:0": row}
+        daemon.metadata = {
+            "s:0": Metadata("codex", "model", "topic", "session")
+        }
+        daemon.prompts = {
+            "s:0": {"at": now, "saw_working": False}
+        }
+        daemon.tmux.set_many = Mock(return_value=True)
+
+        changed = daemon.apply_targets({"s:0"}, {}, now)
+
+        self.assertTrue(changed)
+        self.assertEqual(daemon.applied["s:0"][0], "done")
+
+    def test_side_context_changes_tmux_identity_and_metadata_source(self):
+        daemon = IndicatorDaemon()
+        parent = PaneRow(
+            "%1", "s:0", "codex", "idle", "/repo", "", "/dev/pts/1"
+        )
+        side = PaneRow(
+            "%1",
+            "s:0",
+            "codex",
+            "idle",
+            "/repo",
+            "",
+            "/dev/pts/1",
+            side_active=True,
+        )
+
+        self.assertNotEqual(
+            daemon.row_identity(parent),
+            daemon.row_identity(side),
+        )
+        self.assertNotEqual(
+            daemon.metadata_source_key(parent),
+            daemon.metadata_source_key(side),
+        )
+
     def test_codex_blocked_goal_promotes_idle_pane_to_approval(self):
         daemon = IndicatorDaemon()
         now = time.time()

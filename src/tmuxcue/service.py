@@ -163,7 +163,14 @@ class IndicatorDaemon:
     def row_identity(row: AgentRow) -> tuple:
         if isinstance(row, PaneRow):
             return (
-                "tmux", row.pane, row.agent, row.cwd_hint, row.tty, row.pid, row.started_at
+                "tmux",
+                row.pane,
+                row.agent,
+                row.cwd_hint,
+                row.tty,
+                row.pid,
+                row.started_at,
+                row.side_active,
             )
         return ("terminal", row.pid, row.agent, row.started_at, row.tty)
 
@@ -171,7 +178,14 @@ class IndicatorDaemon:
     def metadata_source_key(row: AgentRow) -> tuple:
         if isinstance(row, PaneRow):
             return (
-                "tmux", row.pane, row.agent, row.cwd_hint, row.tty, row.pid, row.started_at
+                "tmux",
+                row.pane,
+                row.agent,
+                row.cwd_hint,
+                row.tty,
+                row.pid,
+                row.started_at,
+                row.side_active,
             )
         return ("terminal", row.pid, row.agent, row.started_at)
 
@@ -329,6 +343,9 @@ class IndicatorDaemon:
         return {target for target, row in self.rows.items() if row.agent in agents}
 
     def raw_state(self, target: str, row: AgentRow, metadata: Metadata, now: float) -> str:
+        if isinstance(row, PaneRow) and row.agent == "codex" and row.side_active:
+            self.raw_observation_times[target] = self.last_scan
+            return row.state
         if isinstance(row, PaneRow) and row.state == "blocked":
             self.raw_observation_times[target] = self.last_scan
             return row.state
@@ -496,13 +513,16 @@ class IndicatorDaemon:
             if row is None:
                 continue
             metadata = self.metadata.get(target) or Metadata(row.agent, "", row.subject, "")
-            prompt = self.prompts.get(target)
-            raw_state = self.raw_state(target, row, metadata, now)
-            hook_event = (
-                hook_events.get((row.agent, metadata.session_id))
-                if metadata.session_id
-                else None
+            side_active = (
+                isinstance(row, PaneRow)
+                and row.agent == "codex"
+                and row.side_active
             )
+            prompt = None if side_active else self.prompts.get(target)
+            raw_state = self.raw_state(target, row, metadata, now)
+            hook_event = None
+            if not side_active and metadata.session_id:
+                hook_event = hook_events.get((row.agent, metadata.session_id))
             state = self.resolve_state(row, raw_state, prompt, hook_event, now)
             if prompt is not None and state in {"done", "approval"}:
                 self.prompts.pop(target, None)
