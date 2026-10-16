@@ -335,7 +335,7 @@ class IndicatorDaemon:
         if (
             isinstance(row, PaneRow)
             and row.state != "working"
-            and row.agent != "claude"
+            and row.agent not in {"claude", "codex"}
         ):
             self.raw_observation_times[target] = self.last_scan
             return row.state
@@ -348,6 +348,19 @@ class IndicatorDaemon:
 
         runtime_state = self.runtime_states.get(target)
         event_time = self.runtime_event_times.get(target, 0.0)
+        if runtime_state in {"goal_active", "goal_blocked"}:
+            observation_time = self.runtime_times.get(target, now)
+            if isinstance(row, PaneRow):
+                observation_time = max(observation_time, self.last_scan)
+            self.raw_observation_times[target] = observation_time
+            return "working" if runtime_state == "goal_active" else "blocked"
+        if (
+            isinstance(row, PaneRow)
+            and row.agent == "codex"
+            and row.state != "working"
+        ):
+            self.raw_observation_times[target] = self.last_scan
+            return row.state
         if runtime_state is not None:
             if (
                 isinstance(row, PaneRow)

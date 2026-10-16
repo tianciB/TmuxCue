@@ -261,7 +261,71 @@ class DaemonTests(unittest.TestCase):
         )
         daemon.metadata_resolver.runtime_snapshot.assert_called_once()
 
-    def test_codex_idle_pane_does_not_use_runtime_promotion(self):
+    def test_codex_active_goal_promotes_idle_pane_and_supersedes_done(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        daemon.last_scan = now
+        row = PaneRow(
+            "%1",
+            "s:0",
+            "codex",
+            "idle",
+            "/repo",
+            "",
+            "/dev/pts/1",
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("goal_active", now - 30)
+        )
+
+        raw_state = daemon.raw_state("s:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "working")
+        self.assertEqual(daemon.observation_time(row), now)
+        self.assertEqual(
+            daemon.resolve_state(
+                row,
+                raw_state,
+                None,
+                {
+                    "state": "done",
+                    "event": "Stop",
+                    "timestamp": now - 5,
+                },
+                now,
+            ),
+            "running",
+        )
+
+    def test_codex_blocked_goal_promotes_idle_pane_to_approval(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        daemon.last_scan = now
+        row = PaneRow(
+            "%1",
+            "s:0",
+            "codex",
+            "idle",
+            "/repo",
+            "",
+            "/dev/pts/1",
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("goal_blocked", now - 30)
+        )
+
+        raw_state = daemon.raw_state("s:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "blocked")
+        self.assertEqual(daemon.observation_time(row), now)
+        self.assertEqual(
+            daemon.resolve_state(row, raw_state, None, None, now),
+            "approval",
+        )
+
+    def test_codex_idle_pane_ignores_ordinary_runtime_working(self):
         daemon = IndicatorDaemon()
         now = time.time()
         daemon.last_scan = now
@@ -280,7 +344,58 @@ class DaemonTests(unittest.TestCase):
         )
 
         self.assertEqual(daemon.raw_state("s:0", row, metadata, now), "idle")
-        daemon.metadata_resolver.runtime_snapshot.assert_not_called()
+        daemon.metadata_resolver.runtime_snapshot.assert_called_once()
+
+    def test_codex_terminal_goal_status_remains_done_when_idle(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        daemon.last_scan = now
+        row = PaneRow(
+            "%1",
+            "s:0",
+            "codex",
+            "idle",
+            "/repo",
+            "",
+            "/dev/pts/1",
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("idle", now)
+        )
+
+        raw_state = daemon.raw_state("s:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "idle")
+        self.assertEqual(
+            daemon.resolve_state(row, raw_state, None, None, now),
+            "done",
+        )
+
+    def test_direct_terminal_codex_active_goal_is_running(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        row = TerminalRow(
+            pid=123,
+            tty="/dev/pts/9",
+            agent="codex",
+            state="idle",
+            cwd_hint="/repo",
+            started_at=int(now - 100),
+            cmdline="codex",
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("goal_active", now - 30)
+        )
+
+        raw_state = daemon.raw_state("terminal:123", row, metadata, now)
+
+        self.assertEqual(raw_state, "working")
+        self.assertEqual(
+            daemon.resolve_state(row, raw_state, None, None, now),
+            "running",
+        )
 
     def test_fresh_working_scan_supersedes_older_task_complete_and_stop(self):
         daemon = IndicatorDaemon()
