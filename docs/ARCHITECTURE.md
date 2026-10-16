@@ -23,6 +23,8 @@ TmuxCue uses native operating-system and tmux interfaces only:
   terminals.
 - exact-thread Codex Goal state from the read-only `goals_*.sqlite`
   `thread_goals` table.
+- the Codex TUI side-context label, matched only within the final 20 captured
+  pane lines.
 
 Direct-terminal discovery excludes every TTY owned by a tmux pane.
 
@@ -80,6 +82,18 @@ the thread is between continuation turns. `blocked` maps to approval;
 Ordinary rollout `task_started` evidence cannot promote an idle pane unless
 the native pane also shows work, which prevents stale rollout events from
 reviving completed non-Goal sessions.
+
+When a Codex pane displays a `/side` conversation, its bounded live UI is the
+authoritative state source. The pane detector's working, blocked, or idle
+result bypasses the parent thread's Goal/runtime snapshot, lifecycle hook, and
+prompt-grace state. The side-active boolean is part of both row identity and
+metadata-source identity, so closing the side conversation immediately drops
+cached state and restores normal parent-thread resolution.
+
+Side detection does not query `thread_spawn_edges`; those records describe
+subagents rather than the transient TUI side conversation. TmuxCue stores only
+the side-active boolean and does not persist side text, history, labels, or
+thread IDs.
 
 ## Installation layout
 

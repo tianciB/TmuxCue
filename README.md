@@ -109,6 +109,18 @@ Goal state is read by exact thread ID from Codex's local `goals_*.sqlite`
 database in read-only mode. TmuxCue queries only the status and update time; it
 does not read or store the Goal objective, budget, or usage details.
 
+If the Codex TUI is currently displaying a `/side` conversation, that side
+conversation's visible pane state takes priority. Its current working UI shows
+the running moon, a current approval dialog shows `❓`, and an idle side
+conversation shows `✅`. While the side conversation is selected, TmuxCue
+ignores the parent thread's Goal status, lifecycle hooks, and prompt grace.
+Closing the side conversation or switching back restores the parent thread's
+Goal behavior on the next scan.
+
+Side context is detected only from the final 20 captured pane lines. TmuxCue
+stores only a boolean result: it does not read subagent spawn edges or persist
+side questions, history, labels, or thread IDs.
+
 ## Review Gemini hooks
 
 After installation, enter `/hooks panel` in Gemini CLI and review the five
