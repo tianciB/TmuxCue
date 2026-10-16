@@ -1,7 +1,7 @@
 # Claude Busy Runtime Precedence Design
 
 **Date:** 2026-10-16
-**Status:** Approved
+**Status:** Implemented and locally deployed
 **Target release:** v0.5.2
 
 ## Problem
@@ -130,3 +130,23 @@ Add regression coverage for:
    detected AI process identity unchanged.
 7. v0.5.2 is pushed to `main`, tagged, and published as the latest GitHub
    Release.
+
+## Verification
+
+Local verification on 2026-10-16 completed successfully:
+
+- all 104 unit tests passed;
+- dependency and tmux checks passed;
+- the installed CLI reports v0.5.2;
+- the TmuxCue user service is active;
+- the tmux server identity remained unchanged;
+- all 55 existing tmux pane identities remained unchanged;
+- all 10 detected Codex, Claude, and Gemini process identities remained
+  unchanged;
+- the live incident was observed with a bound Claude session reporting busy
+  while TmuxCue still showed done before the fix;
+- regression coverage confirms a current Claude busy read produces running and
+  supersedes an older Stop event;
+- the affected live session had naturally returned to idle by deployment time
+  and correctly remained done;
+- no pane or AI process received input or a signal.

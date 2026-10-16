@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+ standard library, unittest, tmux CLI, Bash, GitHub REST API.
 
-**Status:** Approved for inline execution.
+**Status:** Implemented and locally deployed on 2026-10-16.
 
 ## Global Constraints
 
@@ -36,7 +36,7 @@
 - Produces: expected precedence for Claude pane state, runtime status, and hook
   events.
 
-- [ ] **Step 1: Add the busy-runtime test**
+- [x] **Step 1: Add the busy-runtime test**
 
 Add:
 
@@ -78,7 +78,7 @@ def test_claude_busy_runtime_promotes_an_idle_native_pane(self):
     )
 ```
 
-- [ ] **Step 2: Add approval, idle, fallback, and static-title tests**
+- [x] **Step 2: Add approval, idle, fallback, and static-title tests**
 
 Cover:
 
@@ -88,7 +88,7 @@ Cover:
 - Codex idle pane does not poll/promote runtime working;
 - detector does not classify `✳ Derived session title` as working.
 
-- [ ] **Step 3: Run tests and verify failure**
+- [x] **Step 3: Run tests and verify failure**
 
 Run:
 
@@ -114,7 +114,7 @@ returns idle before polling runtime metadata.
 - Changes: idle Claude `PaneRow` values may be promoted to working by runtime
   metadata.
 
-- [ ] **Step 1: Refine the pane early-return rule**
+- [x] **Step 1: Refine the pane early-return rule**
 
 Replace the broad non-working pane return with:
 
@@ -131,7 +131,7 @@ if (
     return row.state
 ```
 
-- [ ] **Step 2: Make a live pane busy read current evidence**
+- [x] **Step 2: Make a live pane busy read current evidence**
 
 When `runtime_state == "working"` and `row` is a `PaneRow`, set:
 
@@ -145,7 +145,7 @@ observation_time = max(
 
 Return raw `working` through the existing branch.
 
-- [ ] **Step 3: Run focused tests**
+- [x] **Step 3: Run focused tests**
 
 Run:
 
@@ -156,7 +156,7 @@ PYTHONPATH=src python3 tests/test_detector.py
 
 Expected: all focused tests pass.
 
-- [ ] **Step 4: Run agent regressions**
+- [x] **Step 4: Run agent regressions**
 
 Run:
 
@@ -169,7 +169,7 @@ PYTHONPATH=src python3 tests/test_gemini.py
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tmuxcue/service.py tests/test_daemon.py tests/test_detector.py
@@ -190,7 +190,7 @@ git commit -m "fix: honor live Claude busy state in tmux"
 **Interfaces:**
 - Produces: public v0.5.2 version and runtime-precedence documentation.
 
-- [ ] **Step 1: Add the failing version assertion**
+- [x] **Step 1: Add the failing version assertion**
 
 Require:
 
@@ -198,7 +198,7 @@ Require:
 self.assertIn("TmuxCue 0.5.2", output.getvalue())
 ```
 
-- [ ] **Step 2: Run the CLI test and verify failure**
+- [x] **Step 2: Run the CLI test and verify failure**
 
 Run:
 
@@ -208,7 +208,7 @@ PYTHONPATH=src python3 tests/test_cli.py
 
 Expected: source still reports v0.5.1.
 
-- [ ] **Step 3: Update version and documentation**
+- [x] **Step 3: Update version and documentation**
 
 Set both version sources to `0.5.2`.
 
@@ -216,7 +216,7 @@ Document that a bound Claude `busy` session is authoritative working evidence
 for tmux panes when custom model backends emit intermediate Stop events, while
 blocked dialogs remain approval.
 
-- [ ] **Step 4: Run full tests**
+- [x] **Step 4: Run full tests**
 
 Run:
 
@@ -227,7 +227,7 @@ git diff --check
 
 Expected: all tests pass and no whitespace errors are reported.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md docs/ARCHITECTURE.md pyproject.toml \
@@ -248,17 +248,17 @@ git commit -m "chore: release version 0.5.2"
 - Produces: local deployment, pushed main branch, annotated tag, and latest
   GitHub Release.
 
-- [ ] **Step 1: Capture read-only identity snapshots**
+- [x] **Step 1: Capture read-only identity snapshots**
 
 Capture the tmux server, pane PID list, and
 `tmuxcue __process-snapshot` output.
 
-- [ ] **Step 2: Install and compare identities**
+- [x] **Step 2: Install and compare identities**
 
 Run `./install.sh`, compare all snapshots exactly, and require the user service
 to remain active.
 
-- [ ] **Step 3: Verify the live affected pane**
+- [x] **Step 3: Verify the live affected pane**
 
 Use read-only queries and require:
 
@@ -267,12 +267,12 @@ Use read-only queries and require:
 - TmuxCue renders `running` with a moon icon;
 - no pane or AI process identity changed.
 
-- [ ] **Step 4: Record deployment results**
+- [x] **Step 4: Record deployment results**
 
 Mark the design implemented and locally deployed. Record only generic counts
 and pass/fail results, never session content or process IDs.
 
-- [ ] **Step 5: Commit and push main**
+- [x] **Step 5: Commit and push main**
 
 ```bash
 git add docs/superpowers/specs/2026-10-16-claude-busy-runtime-precedence-design.md \
@@ -281,7 +281,7 @@ git commit -m "docs: record v0.5.2 deployment"
 git push origin main
 ```
 
-- [ ] **Step 6: Tag and publish**
+- [x] **Step 6: Tag and publish**
 
 ```bash
 git tag -a v0.5.2 -m "TmuxCue v0.5.2"
@@ -291,3 +291,18 @@ git push origin v0.5.2
 Create a non-draft, non-prerelease latest GitHub Release named
 `TmuxCue v0.5.2` with the root cause, scoped precedence fix, tests, live
 verification, and identity-preservation results.
+
+## Execution record
+
+- All 104 unit tests passed.
+- TmuxCue v0.5.2 was installed and the user service remained active.
+- The tmux server, 55 pane identities, and 10 detected AI process identities
+  matched exactly before and after installation.
+- The incident was captured while the bound Claude session reported busy and
+  TmuxCue displayed done.
+- Regression tests confirm that a current busy read now wins over an older
+  Stop event while blocked panes still show approval.
+- The live session was idle at deployment verification and correctly displayed
+  done.
+- No key, attach command, signal, or process-control action was sent to any
+  session.
