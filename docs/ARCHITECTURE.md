@@ -64,6 +64,13 @@ the bounded screen tail contains a current confirmation dialog. Without that
 corroboration it is live working evidence. A bound `ToolPermission` hook
 remains independent high-confidence approval evidence.
 
+For Claude tmux panes, a bound local session whose live status is `busy` is
+authoritative working evidence even when the native title is a static derived
+session name. Each current read of that busy state can supersede an older
+intermediate `Stop` event from a custom model backend. A blocked pane remains
+approval, and an idle runtime state remains done. The static `✳` title prefix
+is not independently treated as a spinner.
+
 ## Installation layout
 
 ```text

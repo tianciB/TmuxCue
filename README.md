@@ -129,6 +129,12 @@ process start time, TTY, and session ID. If a pre-hook session has multiple
 possible transcripts in the same working directory, TmuxCue leaves it
 unbound instead of borrowing another session's state or topic.
 
+Claude Code sessions that use custom API backends may emit an intermediate
+`Stop` event before all work has finished. For tmux panes, TmuxCue also checks
+the bound Claude session's live `busy` status. A current busy session keeps the
+running moon active until Claude returns to idle; a real approval dialog still
+takes priority and shows `❓`.
+
 Uninstalling with `tmuxcue uninstall` removes only TmuxCue services, hooks, display options, and installed files. It restores the previous native terminal-title and VS Code Remote settings and does not close or restart any tmux pane or terminal AI process.
 
 ## Security
