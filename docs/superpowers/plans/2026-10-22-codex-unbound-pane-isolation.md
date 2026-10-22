@@ -10,6 +10,8 @@
 
 **Execution:** Inline in the existing checkout, as requested. The optional executing-plans skill is not installed; use the explicit test, implementation, review, and deployment checkpoints below. No subagents or separate tasks are needed.
 
+**Status:** Implemented and locally deployed; remote delivery pending.
+
 ## Global Constraints
 
 - Preserve existing explicit and process-backed bindings, native-title matching, and creation-time-proximity behavior.
@@ -43,7 +45,7 @@
 - Reuse: `create_thread_database`, `create_log_database`, and `create_goal_database` in `tests/test_metadata.py`.
 - Exercise: `IndicatorDaemon.refresh_metadata`, `raw_state`, and `apply_targets`, with all tmux writes mocked.
 
-- [ ] **Step 1: Add the regression fixture and tests**
+- [x] **Step 1: Add the regression fixture and tests**
 
 Add these imports to `tests/test_metadata.py`:
 
@@ -296,7 +298,7 @@ class CodexPaneIsolationTests(unittest.TestCase):
         )
 ```
 
-- [ ] **Step 2: Run the regressions against the unchanged implementation**
+- [x] **Step 2: Run the regressions against the unchanged implementation**
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests \
@@ -307,7 +309,7 @@ Expected: assertions expose old-thread metadata leaking into new panes, and
 the new keyword argument is initially unsupported. The compatibility tests
 for existing bindings should already pass.
 
-- [ ] **Step 3: Make the minimal production change**
+- [x] **Step 3: Make the minimal production change**
 
 In `resolve()`, replace the Codex call with:
 
@@ -341,7 +343,7 @@ elif not allow_cwd_fallback:
     return "", "", ""
 ```
 
-- [ ] **Step 4: Run focused and full tests**
+- [x] **Step 4: Run focused and full tests**
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests \
@@ -354,7 +356,7 @@ git diff --check
 Expected: all 12 new tests and all existing 123 tests pass; no whitespace
 errors. Inspect the production diff to ensure only the opt-in guard changed.
 
-- [ ] **Step 5: Commit the tested fix**
+- [x] **Step 5: Commit the tested fix**
 
 ```bash
 git add src/tmuxcue/metadata.py tests/test_metadata.py
@@ -371,7 +373,7 @@ git commit -m "fix: keep unbound Codex panes from borrowing old threads"
 - Consumes: the resolver behavior from Task 1.
 - Produces: accurate user-facing and architecture descriptions, without a new configuration knob.
 
-- [ ] **Step 1: Add this README section before Codex Goal mode**
+- [x] **Step 1: Add this README section before Codex Goal mode**
 
 ```markdown
 ## Codex session binding
@@ -388,7 +390,7 @@ their selection order. Proximity remains a heuristic, not an exact process
 binding. Regular-terminal fallback and Claude/Gemini behavior are unchanged.
 ```
 
-- [ ] **Step 2: Add this architecture paragraph before Output safety**
+- [x] **Step 2: Add this architecture paragraph before Output safety**
 
 ```markdown
 Codex metadata resolution distinguishes earlier binding evidence from its
@@ -402,7 +404,7 @@ Direct-terminal resolution keeps the legacy final fallback. This restriction
 does not make the remaining creation-time heuristic an exact binding.
 ```
 
-- [ ] **Step 3: Review and commit documentation**
+- [x] **Step 3: Review and commit documentation**
 
 ```bash
 git diff --check
@@ -420,7 +422,7 @@ git commit -m "docs: explain isolated Codex pane fallback"
 - Consumes: tested `src/tmuxcue/metadata.py` and the existing installed runtime.
 - Produces: active installed fix, unchanged tmux/AI identities, and private local verification snapshots.
 
-- [ ] **Step 1: Stage the code and run the full suite with the installed interpreter**
+- [x] **Step 1: Stage the code and run the full suite with the installed interpreter**
 
 ```bash
 set -euo pipefail
@@ -440,7 +442,7 @@ Verify that the staged interpreter symlink is unchanged, and that the only
 changed non-bytecode file compared with the previous release is
 `src/tmuxcue/metadata.py`.
 
-- [ ] **Step 2: Snapshot, atomically activate, verify, and roll back on failure**
+- [x] **Step 2: Snapshot, atomically activate, verify, and roll back on failure**
 
 In the shell holding `ROOT`, `BASE`, and `STAGE` from Step 1:
 
@@ -465,7 +467,7 @@ snapshot() {
     destination="$1"
     tmux display-message -p '#{pid}' > "$destination.server"
     tmux list-panes -a \
-      -F '#{session_id}:#{window_id}:#{pane_id}:#{pane_pid}:#{pane_tty}' \
+      -F '#{session_id}:#{window_id}:#{pane_id}:#{pane_pid}:#{pane_tty}:#{pane_dead}' \
       | sort > "$destination.panes"
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$STAGE/src" \
       "$STAGE/python" -m tmuxcue __process-snapshot > "$destination.agents"
@@ -525,7 +527,7 @@ Do not send keys
 to create a test condition. If a session changes naturally during the audit,
 investigate the difference rather than claiming identity preservation.
 
-- [ ] **Step 3: Record the verified deployment**
+- [x] **Step 3: Record the verified deployment**
 
 Update the approved specification's status to implemented and deployed.
 Check off completed steps here and append actual test counts, service health,
@@ -574,3 +576,24 @@ check succeeds.
   snapshots, rollback, and normal fast-forward push.
 - All added fixtures are synthetic; no new runtime dependency or database
   field is introduced.
+
+## Execution Record
+
+- Source fix: `b3b1c21`; user and architecture documentation: `fa12ceb`.
+- Confirmed failing regressions before implementation, followed by 12/12
+  passing new tests and 135/135 passing full-suite tests.
+- Full-suite runs passed using the source, staged runtime, and installed
+  runtime. The installed metadata file's digest matches the committed source.
+- Read-only old/new comparison preserved all 12 active pane bindings
+  (nine Codex and three Claude).
+- A preflight check identified one already-dead retained pane before any
+  activation. The audit preserved its dead state and compared process start
+  times only for live panes; nothing was closed or recreated.
+- Deployment preserved the server, all 59 panes, all 12 AI processes, global
+  tmux options, and 14 configuration/wrapper fingerprints.
+- Only the display service restarted. It is active, with no automatic
+  restarts or reported service errors after deployment.
+- Live `self-study` state was `working` with `goal_active`, correctly shown
+  as `running`; the displayed topic/model matched its current binding.
+- Previous installed release and private local audit snapshots were retained
+  for rollback. No audit snapshots or conversation content were committed.

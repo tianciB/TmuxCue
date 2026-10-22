@@ -1,7 +1,7 @@
 # Codex Unbound Pane Isolation Design
 
 **Date:** 2026-10-22
-**Status:** Written specification approved; implementation in progress
+**Status:** Implemented and locally deployed; remote delivery pending
 **Delivery:** Fix, verify, deploy locally, and push to `origin/main`
 
 ## Problem and evidence
@@ -149,3 +149,28 @@ and relevant README/architecture updates. Recheck the worktree and remote
 `main` before pushing. Use a normal fast-forward push to `origin/main`;
 never force-push or overwrite unrelated changes. Verify that remote `main`
 and the local delivered commit agree before reporting completion.
+
+## Implementation and verification record
+
+- Implemented the optional fallback and Codex-pane opt-out in commit
+  `b3b1c21`; no production state-machine or detector code changed.
+- Added 12 regression tests. The original code reproduced the old-topic,
+  blocked-Goal, active-Goal, and hook leakage before the fix.
+- All 135 unit and privacy tests passed against the repository source, the
+  staged installed runtime, and the activated installed runtime.
+- The changed source and regression file parse with Python 3.10 grammar;
+  runtime tests used the existing validated Python 3.12 interpreter.
+- Before deployment, the old and new resolvers produced identical metadata
+  for all 12 currently detected AI panes (nine Codex and three Claude).
+- The staged release differed from the previous release only in
+  `src/tmuxcue/metadata.py`, excluding existing bytecode caches.
+- Deployment preserved the tmux server identity, all 59 pane identities,
+  live pane process start times, and all 12 detected AI process identities.
+  One pre-existing retained dead pane remained untouched.
+- Global tmux options and all 14 checked configuration/wrapper fingerprints
+  were unchanged. Only `tmuxcue.service` restarted; it is active.
+- Live `self-study` verification found native working state, an active
+  bound Goal, the expected running indicator, and a title matching its
+  current bound metadata.
+- The full installer was not run. No session received input or a
+  process-control command; no Goal, hook, or user configuration was edited.
