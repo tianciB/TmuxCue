@@ -365,6 +365,14 @@ class IndicatorDaemon:
 
         runtime_state = self.runtime_states.get(target)
         event_time = self.runtime_event_times.get(target, 0.0)
+        if (
+            runtime_state == "goal_blocked"
+            and isinstance(row, PaneRow)
+            and row.agent == "codex"
+            and row.state == "working"
+        ):
+            self.raw_observation_times[target] = self.last_scan
+            return "working"
         if runtime_state in {"goal_active", "goal_blocked"}:
             observation_time = self.runtime_times.get(target, now)
             if isinstance(row, PaneRow):

@@ -298,6 +298,33 @@ class DaemonTests(unittest.TestCase):
             "running",
         )
 
+    def test_codex_working_pane_supersedes_stale_blocked_goal(self):
+        daemon = IndicatorDaemon()
+        now = time.time()
+        daemon.last_scan = now
+        row = PaneRow(
+            "%1",
+            "s:0",
+            "codex",
+            "working",
+            "/repo",
+            "",
+            "/dev/pts/1",
+        )
+        metadata = Metadata("codex", "model", "topic", "session")
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("goal_blocked", now - 3600)
+        )
+
+        raw_state = daemon.raw_state("s:0", row, metadata, now)
+
+        self.assertEqual(raw_state, "working")
+        self.assertEqual(daemon.observation_time(row), now)
+        self.assertEqual(
+            daemon.resolve_state(row, raw_state, None, None, now),
+            "running",
+        )
+
     def test_active_side_idle_ignores_parent_goal(self):
         daemon = IndicatorDaemon()
         now = time.time()
