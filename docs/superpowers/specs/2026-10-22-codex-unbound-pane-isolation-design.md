@@ -1,7 +1,7 @@
 # Codex Unbound Pane Isolation Design
 
 **Date:** 2026-10-22
-**Status:** Design approach approved; written specification awaiting review
+**Status:** Written specification approved; implementation in progress
 **Delivery:** Fix, verify, deploy locally, and push to `origin/main`
 
 ## Problem and evidence
