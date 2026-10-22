@@ -1,7 +1,7 @@
 # Codex Live Working Goal Precedence Design
 
 **Date:** 2026-10-22
-**Status:** Approved
+**Status:** Implemented, deployed, and released
 **Target release:** v0.5.5
 
 ## Problem
@@ -116,3 +116,17 @@ current working or approval UI. Release the fix as v0.5.5.
    detected AI process identity unchanged.
 8. v0.5.5 is pushed to `main`, tagged, and published as the latest GitHub
    Release.
+
+## Implementation record
+
+- Added a regression for a working Codex pane with an older blocked Goal.
+- Limited the precedence exception to `goal_blocked` so ordinary runtime
+  completion and abort handling remains unchanged.
+- Passed all 123 unit and privacy tests.
+- Installed v0.5.5 with the tmux server, all 58 pane identities, and all 11
+  detected AI process identities unchanged.
+- Verified the installed synthetic regression.
+- Verified live `self-study` state as working plus `goal_blocked`, correctly
+  rendered as running.
+- Restarted only `tmuxcue.service` and confirmed it remained active.
+- Published v0.5.5 from `main` as an annotated tag and latest GitHub Release.

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+ standard library, unittest, tmux CLI, Bash, GitHub REST API.
 
-**Status:** Approved for inline execution.
+**Status:** Implemented, deployed, and released as v0.5.5.
 
 ## Global Constraints
 
@@ -32,7 +32,7 @@
 - Exercises: `IndicatorDaemon.raw_state(...)`.
 - Preserves: existing public daemon method signatures.
 
-- [ ] **Step 1: Add the failing regression**
+- [x] **Step 1: Add the failing regression**
 
 Add a test with:
 
@@ -64,7 +64,7 @@ self.assertEqual(
 )
 ```
 
-- [ ] **Step 2: Run the focused test and verify failure**
+- [x] **Step 2: Run the focused test and verify failure**
 
 Run:
 
@@ -86,7 +86,7 @@ Expected: the new test receives `blocked` instead of `working`.
 - Consumes: `PaneRow.state`.
 - Preserves: `IndicatorDaemon.raw_state(...) -> str`.
 
-- [ ] **Step 1: Add the minimal precedence branch**
+- [x] **Step 1: Add the minimal precedence branch**
 
 Before the generic Goal mapping in `raw_state()`, add:
 
@@ -104,7 +104,7 @@ if (
 The existing early blocked-pane branch and side-active branch remain ahead of
 this code.
 
-- [ ] **Step 2: Run focused daemon tests**
+- [x] **Step 2: Run focused daemon tests**
 
 Run:
 
@@ -115,7 +115,7 @@ PYTHONPATH=src python3 tests/test_daemon.py
 Expected: all daemon tests pass, including the existing idle blocked Goal,
 visible approval, side-active, completion, and abort regressions.
 
-- [ ] **Step 3: Run full tests**
+- [x] **Step 3: Run full tests**
 
 Run:
 
@@ -126,7 +126,7 @@ git diff --check
 
 Expected: all tests pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/tmuxcue/service.py tests/test_daemon.py
@@ -147,7 +147,7 @@ git commit -m "fix: prioritize live Codex work over stale Goal block"
 **Interfaces:**
 - Produces: public v0.5.5 version and precedence documentation.
 
-- [ ] **Step 1: Require v0.5.5 in the CLI test**
+- [x] **Step 1: Require v0.5.5 in the CLI test**
 
 Change the expected version to:
 
@@ -155,7 +155,7 @@ Change the expected version to:
 self.assertIn("TmuxCue 0.5.5", output.getvalue())
 ```
 
-- [ ] **Step 2: Run the CLI test and verify failure**
+- [x] **Step 2: Run the CLI test and verify failure**
 
 ```bash
 PYTHONPATH=src python3 tests/test_cli.py
@@ -163,7 +163,7 @@ PYTHONPATH=src python3 tests/test_cli.py
 
 Expected: installed source still reports v0.5.4.
 
-- [ ] **Step 3: Update version and documentation**
+- [x] **Step 3: Update version and documentation**
 
 Set both version sources to `0.5.5`.
 
@@ -174,7 +174,7 @@ Document:
 - side-conversation precedence remains unchanged;
 - completion and abort runtime evidence can still clear stale spinners.
 
-- [ ] **Step 4: Run full and privacy tests**
+- [x] **Step 4: Run full and privacy tests**
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
@@ -182,7 +182,7 @@ PYTHONPATH=src python3 tests/test_privacy.py
 git diff --check
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md docs/ARCHITECTURE.md pyproject.toml \
@@ -202,7 +202,7 @@ git commit -m "chore: release version 0.5.5"
 - Consumes: complete v0.5.5 implementation.
 - Produces: local deployment and a verified live `self-study` state.
 
-- [ ] **Step 1: Capture identity snapshots**
+- [x] **Step 1: Capture identity snapshots**
 
 Capture:
 
@@ -211,7 +211,7 @@ Capture:
 - `tmuxcue __process-snapshot`;
 - current `tmuxcue.service` PID.
 
-- [ ] **Step 2: Install and compare**
+- [x] **Step 2: Install and compare**
 
 Run:
 
@@ -222,12 +222,12 @@ Run:
 Require exact tmux, pane, and detected AI identity matches. Only the service
 PID may change, and the service must remain active.
 
-- [ ] **Step 3: Verify the installed regression**
+- [x] **Step 3: Verify the installed regression**
 
 Run a synthetic installed-package assertion for a working pane plus
 `goal_blocked`.
 
-- [ ] **Step 4: Verify `self-study`**
+- [x] **Step 4: Verify `self-study`**
 
 Without sending input, require:
 
@@ -240,7 +240,7 @@ managed_state=running
 If the live pane naturally changes before verification, record the new native
 and Goal state instead and verify the corresponding documented precedence.
 
-- [ ] **Step 5: Record and commit deployment**
+- [x] **Step 5: Record and commit deployment**
 
 Mark the design and plan implemented and record generic test and identity
 counts:
@@ -260,7 +260,7 @@ git commit -m "docs: record v0.5.5 deployment"
 - Produces: synchronized `main`, annotated tag `v0.5.5`, and latest GitHub
   Release `TmuxCue v0.5.5`.
 
-- [ ] **Step 1: Verify publication preconditions**
+- [x] **Step 1: Verify publication preconditions**
 
 Require:
 
@@ -268,20 +268,33 @@ Require:
 - `origin/main` is an ancestor of local `main`;
 - no local or remote `v0.5.5` tag.
 
-- [ ] **Step 2: Push `main`**
+- [x] **Step 2: Push `main`**
 
 ```bash
 git push origin main
 ```
 
-- [ ] **Step 3: Create and push the annotated tag**
+- [x] **Step 3: Create and push the annotated tag**
 
 ```bash
 git tag -a v0.5.5 -m "TmuxCue v0.5.5"
 git push origin v0.5.5
 ```
 
-- [ ] **Step 4: Publish and verify the GitHub Release**
+- [x] **Step 4: Publish and verify the GitHub Release**
 
 Create a non-draft, non-prerelease release named `TmuxCue v0.5.5`, mark it
 latest, and verify both the tag-specific and latest release endpoints.
+
+## Execution record
+
+- All 123 unit and privacy tests passed.
+- The installed package reports `TmuxCue 0.5.5`.
+- The tmux server, all 58 pane identities, and all 11 detected AI process
+  identities were unchanged across installation.
+- Only `tmuxcue.service` restarted, and it remained active.
+- The installed live-working precedence regression passed.
+- Live `self-study` reported `pane_state=working`,
+  `runtime_state=goal_blocked`, and `managed_state=running`.
+- `main`, annotated tag `v0.5.5`, and the latest GitHub Release were
+  published.
