@@ -115,7 +115,10 @@ class MetadataResolver:
 
         if row.agent == "codex":
             model, topic, session_id = self.codex_metadata(
-                cwd, process, row.subject
+                cwd,
+                process,
+                row.subject,
+                allow_cwd_fallback=not isinstance(row, PaneRow),
             )
         elif row.agent == "claude":
             model, topic, session_id = self.claude_metadata(
@@ -291,7 +294,12 @@ class MetadataResolver:
         return session_id if UUID_RE.fullmatch(session_id) else ""
 
     def codex_metadata(
-        self, cwd: str, process: ProcessInfo | None, subject: str = ""
+        self,
+        cwd: str,
+        process: ProcessInfo | None,
+        subject: str = "",
+        *,
+        allow_cwd_fallback: bool = True,
     ) -> tuple[str, str, str]:
         database = self.codex_database()
         if database is None:
@@ -359,6 +367,8 @@ class MetadataResolver:
                     nearby,
                     key=lambda row: abs((row["created_at_ms"] or 0) - started_ms),
                 )
+            elif not allow_cwd_fallback:
+                return "", "", ""
             else:
                 eligible = [
                     row for row in rows
