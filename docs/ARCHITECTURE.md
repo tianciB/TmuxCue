@@ -83,6 +83,14 @@ Ordinary rollout `task_started` evidence cannot promote an idle pane unless
 the native pane also shows work, which prevents stale rollout events from
 reviving completed non-Goal sessions.
 
+A current Codex tmux observation is authoritative over an older blocked Goal.
+A visible approval dialog remains blocked, while a current native working
+spinner remains working even if the durable Goal is still `blocked` from an
+earlier stall. Exact Goal state continues to supplement an idle pane. This
+exception is limited to `goal_blocked`; ordinary runtime completion and abort
+events still pass through the existing freshness rules and can clear a stale
+spinner.
+
 When a Codex pane displays a `/side` conversation, its bounded live UI is the
 authoritative state source. The pane detector's working, blocked, or idle
 result bypasses the parent thread's Goal/runtime snapshot, lifecycle hook, and

@@ -109,6 +109,13 @@ Goal state is read by exact thread ID from Codex's local `goals_*.sqlite`
 database in read-only mode. TmuxCue queries only the status and update time; it
 does not read or store the Goal objective, budget, or usage details.
 
+Exact Goal state supplements the current pane rather than replacing current
+native UI evidence. A visible approval dialog remains `❓`, and a pane with a
+current working spinner remains running even if an older durable Goal is still
+marked `blocked`. An idle pane can still be promoted by `goal_active` or
+`goal_blocked`. Newer completion and abort runtime evidence can still clear a
+stale working spinner.
+
 If the Codex TUI is currently displaying a `/side` conversation, that side
 conversation's visible pane state takes priority. Its current working UI shows
 the running moon, a current approval dialog shows `❓`, and an idle side
