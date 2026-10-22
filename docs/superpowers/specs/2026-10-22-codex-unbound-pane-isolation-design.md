@@ -1,7 +1,7 @@
 # Codex Unbound Pane Isolation Design
 
 **Date:** 2026-10-22
-**Status:** Implemented and locally deployed; remote delivery pending
+**Status:** Implemented, locally deployed, and pushed to `origin/main`
 **Delivery:** Fix, verify, deploy locally, and push to `origin/main`
 
 ## Problem and evidence
@@ -174,3 +174,6 @@ and the local delivered commit agree before reporting completion.
   current bound metadata.
 - The full installer was not run. No session received input or a
   process-control command; no Goal, hook, or user configuration was edited.
+- Pushed the implementation and verification records normally to
+  `origin/main` and verified matching local and remote commit IDs. No tag
+  or GitHub Release was created.

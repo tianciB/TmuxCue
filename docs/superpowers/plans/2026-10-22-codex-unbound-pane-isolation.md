@@ -10,7 +10,7 @@
 
 **Execution:** Inline in the existing checkout, as requested. The optional executing-plans skill is not installed; use the explicit test, implementation, review, and deployment checkpoints below. No subagents or separate tasks are needed.
 
-**Status:** Implemented and locally deployed; remote delivery pending.
+**Status:** Implemented, locally deployed, and pushed to `origin/main`.
 
 ## Global Constraints
 
@@ -548,7 +548,7 @@ git commit -m "docs: record verified Codex pane isolation deployment"
 - Consumes: clean, tested, deployed local commits.
 - Produces: identical local and remote delivered commits.
 
-- [ ] **Step 1: Verify remote ancestry and push normally**
+- [x] **Step 1: Verify remote ancestry and push normally**
 
 ```bash
 test -z "$(git status --porcelain)"
@@ -597,3 +597,5 @@ check succeeds.
   as `running`; the displayed topic/model matched its current binding.
 - Previous installed release and private local audit snapshots were retained
   for rollback. No audit snapshots or conversation content were committed.
+- Normal fast-forward push to `origin/main` succeeded, and local/remote
+  commit IDs matched after delivery. No tag or GitHub Release was created.
