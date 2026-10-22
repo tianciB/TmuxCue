@@ -94,6 +94,19 @@ Before trusting them, verify that:
 
 The hooks only record the agent, session ID, state, event name, and timestamp. They do not approve permissions, execute requested tools, or store prompt content.
 
+## Codex session binding
+
+Codex tmux panes do not borrow an old thread solely because it shares their
+working directory. If no earlier binding path selects a thread, TmuxCue
+keeps the pane unbound and uses its native subject or directory name instead
+of another thread's model, topic, Goal, or hooks. Normal metadata refresh
+binds the current thread when it becomes discoverable.
+
+Command-line IDs, open rollout/writer-lock files, process logs, unique native
+title matches, and the existing creation-time-proximity heuristic retain
+their selection order. Proximity remains a heuristic, not an exact process
+binding. Regular-terminal fallback and Claude/Gemini behavior are unchanged.
+
 ## Codex Goal mode
 
 TmuxCue distinguishes the current Codex turn, detached background terminals,

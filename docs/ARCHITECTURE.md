@@ -35,6 +35,16 @@ session UUID selects one JSONL transcript. A legacy fallback is accepted only
 when exactly one transcript matches the working directory and process
 incarnation.
 
+Codex metadata resolution distinguishes earlier binding evidence from its
+final cwd-only fallback. For tmux panes, that final fallback is disabled:
+when command-line identity, open rollout/writer-lock files, process logs,
+unique native titles, and the existing creation-time-proximity heuristic
+all fail to select a candidate, the pane stays unbound. An empty session ID
+cannot select another thread's runtime snapshot or hooks. The existing
+native subject/directory label and native pane state remain available.
+Direct-terminal resolution keeps the legacy final fallback. This restriction
+does not make the remaining creation-time heuristic an exact binding.
+
 ## Output safety
 
 Tmux formats contain no shell interpolation and never use `#(...)`. The updater
