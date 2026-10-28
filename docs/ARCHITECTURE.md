@@ -82,8 +82,18 @@ For Claude tmux panes, a bound local session whose live status is `busy` is
 authoritative working evidence even when the native title is a static derived
 session name. Each current read of that busy state can supersede an older
 intermediate `Stop` event from a custom model backend. A blocked pane remains
-approval, and an idle runtime state remains done. The static `✳` title prefix
-is not independently treated as a spinner.
+approval. An idle runtime without newer native working evidence remains done.
+The static `✳` title prefix is not independently treated as a spinner.
+
+Claude activity detection also locates the last input composer within the
+final 20 captured lines, requiring its upper and lower separators. Only the
+nearest nonblank status line above the upper separator is considered:
+an elapsed/token progress meter or a positive background-agent wait is
+working evidence. Earlier output, other composers, and completed summaries
+are ignored. This uses the existing capture and adds no transcript/task
+inspection or persistent data. Existing scan/runtime/hook timestamps resolve
+fresh activity against older idle/Stop evidence and still allow newer
+completion or approval to supersede a stale scan.
 
 Codex Goal state is distinct from turn state and detached background terminal
 state. An exact Goal status of `active` is current working evidence even while

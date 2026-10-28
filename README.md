@@ -177,10 +177,18 @@ possible transcripts in the same working directory, TmuxCue leaves it
 unbound instead of borrowing another session's state or topic.
 
 Claude Code sessions that use custom API backends may emit an intermediate
-`Stop` event before all work has finished. For tmux panes, TmuxCue also checks
-the bound Claude session's live `busy` status. A current busy session keeps the
-running moon active until Claude returns to idle; a real approval dialog still
-takes priority and shows `❓`.
+`Stop` event before all work has finished. For tmux panes, TmuxCue checks
+both the bound Claude session's live `busy` status and the current status
+line immediately above the input composer. Progress with an elapsed/token
+meter, or an explicit wait for one or more background agents, keeps the
+running moon active even when the main turn temporarily reports idle.
+A real approval dialog still takes priority and shows `❓`.
+
+Only a current, bounded footer is used: old output, quoted status text,
+completion summaries, and the static `✳` title do not imply ongoing work.
+A genuinely idle pane returns to `✅` without an added completion delay.
+Claude CLI sessions using Gemini-backed models follow these Claude rules;
+native Gemini CLI behavior is unchanged.
 
 Uninstalling with `tmuxcue uninstall` removes only TmuxCue services, hooks, display options, and installed files. It restores the previous native terminal-title and VS Code Remote settings and does not close or restart any tmux pane or terminal AI process.
 
