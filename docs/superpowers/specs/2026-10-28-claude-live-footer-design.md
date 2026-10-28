@@ -1,7 +1,7 @@
 # Claude Live Footer Activity Design
 
 **Date:** 2026-10-28
-**Status:** Implemented and locally deployed; remote delivery pending
+**Status:** Implemented, locally deployed, and pushed to `origin/main`
 **Delivery:** Safely deploy the fix and push to `origin/main`
 
 ## Problem and evidence
@@ -160,3 +160,6 @@ keep private audit snapshots outside the repository.
   sending input to the live session.
 - The previous installed release and private audit snapshots were retained
   for rollback. No private conversation content or snapshots were committed.
+- The implementation and verification records were pushed normally to
+  `origin/main`, with matching local and remote delivered commit IDs.
+  No tag or GitHub Release was created.

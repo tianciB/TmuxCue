@@ -10,7 +10,7 @@
 
 **Execution:** Inline under the user's instruction to fix and push. The optional executing-plans skill is not installed; follow the explicit red/green, review, deployment, and delivery checkpoints here.
 
-**Status:** Implemented and locally deployed; remote delivery pending.
+**Status:** Implemented, locally deployed, and pushed to `origin/main`.
 
 ## Global Constraints
 
@@ -566,7 +566,7 @@ git commit -m "docs: record verified Claude footer deployment"
 - Consumes: clean tested commits and healthy local deployment.
 - Produces: verified matching local and remote delivered heads.
 
-- [ ] **Step 1: Verify ancestry and push without rewriting history**
+- [x] **Step 1: Verify ancestry and push without rewriting history**
 
 ```bash
 test -z "$(git status --porcelain)"
@@ -612,3 +612,5 @@ and push/verify it with the same normal procedure.
   fixtures independently verified the new progress/wait paths.
 - No input, process control, model changes, or configuration edits were sent
   to any existing AI/tmux session. Private audit data remains outside Git.
+- Normal fast-forward publication to `origin/main` succeeded, and the local
+  and remote delivered commit IDs matched. No tag or release was created.
