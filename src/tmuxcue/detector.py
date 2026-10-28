@@ -50,6 +50,18 @@ GEMINI_WORKING_PATTERNS = WORKING_PATTERNS + (
     r"\bworking\b",
 )
 
+CLAUDE_ACTIVITY = re.compile(
+    r"^[·✢✳✶✻✽]\s+(?:"
+    r"Waiting for [1-9]\d* background agents? to finish"
+    r"|[^\r\n]+(?:…|\.{3})\s+"
+    r"\(\d+[hms](?:\s+\d+[hms])*\s+·\s+"
+    r"[↑↓]\s*\d+(?:[.,]\d+)*[kKmM]?\s+tokens"
+    r"(?:\s+·\s+[^)\r\n]+)?\))$",
+    re.I,
+)
+CLAUDE_PROMPT = re.compile(r"^\s*❯(?:\s|$)")
+CLAUDE_SEPARATOR = re.compile(r"^[─━]{3,}$")
+
 SIDE_CONTEXT = re.compile(
     r"^\s*Side from (?:main thread|parent thread(?:\s*\([^)]*\))?)"
     r"(?:\s|·|$)",
@@ -180,6 +192,28 @@ class TmuxDetector:
             for line in (screen or "").splitlines()[-20:]
         )
 
+    @staticmethod
+    def claude_footer_is_working(screen: str) -> bool:
+        """Read only the status immediately above the current bounded composer."""
+        lines = (screen or "").splitlines()[-20:]
+        for index in range(len(lines) - 1, -1, -1):
+            if not CLAUDE_PROMPT.match(lines[index]):
+                continue
+            if index < 2 or not CLAUDE_SEPARATOR.fullmatch(lines[index - 1].strip()):
+                return False
+            if not any(
+                CLAUDE_SEPARATOR.fullmatch(line.strip())
+                for line in lines[index + 1 :]
+            ):
+                return False
+            candidate = index - 2
+            while candidate >= 0 and not lines[candidate].strip():
+                candidate -= 1
+            return candidate >= 0 and bool(
+                CLAUDE_ACTIVITY.fullmatch(lines[candidate].strip())
+            )
+        return False
+
     def detect_state(self, agent: str, title: str, screen: str) -> str:
         title_text = title or ""
         screen_lines = (screen or "").splitlines()
@@ -217,6 +251,8 @@ class TmuxDetector:
                 return "working"
             if has_approval_dialog:
                 return "blocked"
+        if agent == "claude" and self.claude_footer_is_working(screen):
+            return "working"
         working_tail = "\n".join(screen_lines[-12:])
         if self.matches_any(working_patterns, working_tail):
             return "working"
