@@ -10,6 +10,8 @@
 
 **Execution:** Inline under the user's instruction to fix and push. The optional executing-plans skill is not installed; follow the explicit red/green, review, deployment, and delivery checkpoints here.
 
+**Status:** Implemented and locally deployed; remote delivery pending.
+
 ## Global Constraints
 
 - Inspect only the final 20 captured pane lines.
@@ -43,7 +45,7 @@
 - Preserve: `TmuxDetector.detect_state(agent, title, screen) -> str`.
 - Exercise: `IndicatorDaemon.raw_state` and `resolve_state`, with runtime metadata mocked and no live tmux writes.
 
-- [ ] **Step 1: Add these synthetic regressions**
+- [x] **Step 1: Add these synthetic regressions**
 
 Create `tests/test_claude_activity.py` with:
 
@@ -295,7 +297,7 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Confirm the failing regressions**
+- [x] **Step 2: Confirm the failing regressions**
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests \
@@ -305,7 +307,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests \
 Expected: current progress/wait tests fail because the old detector returns
 idle. Negative cases and existing precedence compatibility cases remain green.
 
-- [ ] **Step 3: Add the minimal detector implementation**
+- [x] **Step 3: Add the minimal detector implementation**
 
 Add these module constants after the existing working-pattern constants:
 
@@ -355,7 +357,7 @@ if agent == "claude" and self.claude_footer_is_working(screen):
     return "working"
 ```
 
-- [ ] **Step 4: Run focused and complete tests and review**
+- [x] **Step 4: Run focused and complete tests and review**
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests \
@@ -369,7 +371,7 @@ git diff -- src/tmuxcue/detector.py
 Expected: focused tests report `OK`, all original 135 tests remain green,
 and production changes are confined to the Claude-only detector path.
 
-- [ ] **Step 5: Commit the tested implementation**
+- [x] **Step 5: Commit the tested implementation**
 
 ```bash
 git add src/tmuxcue/detector.py tests/test_claude_activity.py
@@ -386,7 +388,7 @@ git commit -m "fix: detect live Claude progress and background-agent waits"
 - Consumes: the detector behavior from Task 1.
 - Produces: consistent user and architecture descriptions without a new setting.
 
-- [ ] **Step 1: Replace the README Claude busy paragraph with this text**
+- [x] **Step 1: Replace the README Claude busy paragraph with this text**
 
 ```markdown
 Claude Code sessions that use custom API backends may emit an intermediate
@@ -404,7 +406,7 @@ Claude CLI sessions using Gemini-backed models follow these Claude rules;
 native Gemini CLI behavior is unchanged.
 ```
 
-- [ ] **Step 2: Replace the architecture Claude paragraph with this text**
+- [x] **Step 2: Replace the architecture Claude paragraph with this text**
 
 ```markdown
 For Claude tmux panes, a bound local session whose live status is `busy` is
@@ -425,7 +427,7 @@ fresh activity against older idle/Stop evidence and still allow newer
 completion or approval to supersede a stale scan.
 ```
 
-- [ ] **Step 3: Check and commit documentation**
+- [x] **Step 3: Check and commit documentation**
 
 ```bash
 git diff --check
@@ -443,7 +445,7 @@ git commit -m "docs: explain Claude live footer activity"
 - Consumes: tested detector and unchanged installed runtime/interpreter.
 - Produces: healthy installed fix, identity/configuration equality checks, and rollback capability.
 
-- [ ] **Step 1: Stage and test the installed runtime**
+- [x] **Step 1: Stage and test the installed runtime**
 
 ```bash
 set -euo pipefail
@@ -465,7 +467,7 @@ Compare all non-bytecode staged files with the previous release: only
 `src/tmuxcue/detector.py` may differ. The Python interpreter symlink,
 existing metadata-isolation fix, hooks, and helpers must match.
 
-- [ ] **Step 2: Capture safety snapshots and activate with rollback**
+- [x] **Step 2: Capture safety snapshots and activate with rollback**
 
 In the shell holding the deployment variables from Step 1:
 
@@ -545,7 +547,7 @@ dead retained pane as dead, not as a missing live process to recreate.
 Observe `gemini-1` using read-only capture and metadata; accept genuine idle
 completion if work has finished. Never send input to manufacture activity.
 
-- [ ] **Step 3: Record and commit verified deployment**
+- [x] **Step 3: Record and commit verified deployment**
 
 Check off completed steps and record actual test, process, and configuration
 counts in the spec and this plan; do not commit private snapshots.
@@ -590,3 +592,23 @@ and push/verify it with the same normal procedure.
   fast-forward publication.
 - No added runtime dependency, metadata read, hook, completion delay, or
   persisted screen content.
+
+## Execution Record
+
+- Fix commit: `16857b4`; README/architecture update: `c9aebda`.
+- Confirmed failing positive regressions on the old implementation.
+  All 22 focused tests subsequently passed.
+- All 157 tests passed using source, staged, and installed packages.
+- Python 3.10 grammar checks passed; the installed interpreter is unchanged.
+- Only the installed detector source changed, and its fingerprint matches
+  the committed implementation.
+- Deployment preserved the tmux server, all 59 panes (including one retained
+  dead pane), live pane start times, all 12 AI processes, global tmux options,
+  and 14 configuration/wrapper path fingerprints.
+- Only `tmuxcue.service` restarted and remains active, with no automatic
+  restarts or reported service errors during verification.
+- The live target displayed running from its bound working runtime with a
+  matching label. Its footer was not active at that moment; synthetic
+  fixtures independently verified the new progress/wait paths.
+- No input, process control, model changes, or configuration edits were sent
+  to any existing AI/tmux session. Private audit data remains outside Git.

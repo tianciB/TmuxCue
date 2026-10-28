@@ -1,7 +1,7 @@
 # Claude Live Footer Activity Design
 
 **Date:** 2026-10-28
-**Status:** Approach approved in conversation; implementation in progress
+**Status:** Implemented and locally deployed; remote delivery pending
 **Delivery:** Safely deploy the fix and push to `origin/main`
 
 ## Problem and evidence
@@ -132,3 +132,31 @@ not present live.
 On failed deployment verification, restore the previous release symlink and
 restart only the display service. Retain the old release for rollback and
 keep private audit snapshots outside the repository.
+
+## Implementation and verification record
+
+- Implemented the Claude-only detector update in `16857b4`. No daemon,
+  metadata, hook, direct-terminal, or other-agent production logic changed.
+- Added 22 detector/integration tests. Before the fix, the positive progress
+  and waiting regressions reproduced idle/done misclassification; afterward
+  all new tests passed.
+- All 157 unit and privacy tests passed against repository source, the
+  staged installed runtime, and the activated installed runtime.
+- The source and regression module parse with Python 3.10 grammar; runtime
+  verification used the existing validated Python 3.12 interpreter.
+- Only `src/tmuxcue/detector.py` differed between installed releases,
+  excluding existing bytecode caches. Its activated digest matches the
+  committed source.
+- The tmux server, all 59 panes, live pane process start times, and all 12
+  detected AI process identities remained unchanged. One previously dead,
+  retained pane remained dead and untouched.
+- Global tmux options and 14 checked configuration/wrapper paths remained
+  unchanged. Only the display service restarted; it is active with no
+  automatic restarts or reported errors during verification.
+- At the final live check, `gemini-1` had a bound working runtime and
+  correctly displayed running with matching metadata. Its captured footer
+  was not an activity footer at that instant; the newly recognized progress
+  and background-wait paths were verified with synthetic fixtures, not by
+  sending input to the live session.
+- The previous installed release and private audit snapshots were retained
+  for rollback. No private conversation content or snapshots were committed.
