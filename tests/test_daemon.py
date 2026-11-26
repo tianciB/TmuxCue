@@ -889,11 +889,12 @@ class DaemonTests(unittest.TestCase):
             "🌑 [tmux] gemini/gemini-test: Fix session binding",
         )
 
-    def test_tmux_snippet_never_executes_shell_commands(self):
+    def test_tmux_snippet_never_executes_shell_commands_or_sets_outer_titles(self):
         snippet = (
             Path(__file__).parents[1] / "tmux" / "tmuxcue.conf"
         ).read_text(encoding="utf-8")
         self.assertNotIn("#(", snippet)
+        self.assertNotIn("set-titles", snippet)
 
 
 if __name__ == "__main__":

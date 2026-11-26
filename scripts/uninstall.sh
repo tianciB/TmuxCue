@@ -39,6 +39,10 @@ systemctl --user daemon-reload
 "$PYTHON_BIN" "$ROOT/scripts/configure.py" uninstall
 
 if tmux list-sessions >/dev/null 2>&1; then
+    tmux set-option -gu set-titles >/dev/null 2>&1 || true
+    tmux set-option -gu set-titles-string >/dev/null 2>&1 || true
+    tmux set-option -gu window-status-format >/dev/null 2>&1 || true
+    tmux set-option -gu window-status-current-format >/dev/null 2>&1 || true
     while IFS= read -r window; do
         for option in @agent_state @agent_icon @agent_title; do
             tmux set-option -wu -t "$window" "$option" >/dev/null 2>&1 || true

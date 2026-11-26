@@ -1,6 +1,6 @@
 # TmuxCue
 
-TmuxCue shows the live status, model, and topic of Codex, Claude, and Gemini CLI sessions in tmux windows.
+TmuxCue shows the live status, model, and topic of Codex, Claude, and Gemini CLI sessions inside tmux status bars.
 
 ## Status indicators
 
@@ -10,7 +10,7 @@ TmuxCue shows the live status, model, and topic of Codex, Claude, and Gemini CLI
 | 🌑 → 🌘 | Running |
 | ✅ | Turn completed or was interrupted; waiting for the next prompt |
 
-Example titles:
+Example `@agent_title` values written to tmux window options:
 
 ```text
 🌒 [tmux] codex/gpt-5.6-sol: Analyze the codebase and add tests...
@@ -18,20 +18,7 @@ Example titles:
 ✅ [tmux] gemini/gemini-2.5-pro: Add lifecycle supervision...
 ```
 
-TmuxCue manages tmux windows only; regular terminals outside tmux are left completely untouched.
-
-## VS Code Remote
-
-TmuxCue automatically configures the server-side VS Code Remote title template:
-
-```json
-{
-  "terminal.integrated.tabs.title": "${sequence}",
-  "terminal.integrated.tabs.description": ""
-}
-```
-
-The setting is stored on the server, so a new VS Code Remote SSH connection from another computer loads TmuxCue titles without per-client setup or a manual refresh. Existing Remote settings are merged and backed up; uninstall restores the previous values when they are still managed by TmuxCue.
+TmuxCue manages tmux window status indicators only. It does not enable tmux `set-titles`, does not write to outer terminal tabs or VS Code Remote settings, and leaves terminals outside tmux completely untouched. Updating or uninstalling automatically restores any legacy VS Code Remote title settings managed by older TmuxCue versions.
 
 ## Install
 
@@ -174,11 +161,11 @@ Uninstalling with `tmuxcue uninstall` removes only TmuxCue services, hooks, disp
 ## Security
 
 - Refuses installation as `root` and never requires `sudo`.
-- Backs up tmux, Codex, Claude, Gemini, and existing VS Code Remote configuration before editing.
+- Backs up tmux, Codex, Claude, and Gemini configuration before editing.
 - Never runs `kill-session`, `kill-window`, `send-keys`, `attach`, `respawn`, or sends signals to AI processes.
 - Verifies that the tmux server, every tmux pane PID, and detected Codex, Claude, and Node-based Gemini process identities remain unchanged.
-- Uses no `#(...)` shell commands in tmux title formats.
-- Never writes to TTY devices or modifies terminals outside tmux.
+- Uses no `#(...)` shell commands in tmux status formats.
+- Never enables tmux `set-titles`, never writes to TTY devices, and never modifies outer terminal tabs or VS Code Remote settings.
 - Stores hook events with `0600` permissions.
 - Runs the user service with `NoNewPrivileges` and `UMask=0077`.
 
