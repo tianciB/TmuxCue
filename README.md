@@ -1,24 +1,24 @@
 # TmuxCue
 
-TmuxCue shows the live status, model, and topic of Codex, Claude, and Gemini CLI sessions in tmux windows and, optionally, regular terminal tabs.
+TmuxCue shows the live status, model, and topic of Codex, Claude, and Gemini CLI sessions in tmux windows.
 
 ## Status indicators
 
 | Indicator | Meaning |
 |---|---|
 | ❓ | Waiting for approval or user input |
-| 🌑 → 🌘 in tmux; stable 🌒 in regular terminals when enabled | Running |
+| 🌑 → 🌘 | Running |
 | ✅ | Turn completed or was interrupted; waiting for the next prompt |
 
 Example titles:
 
 ```text
 🌒 [tmux] codex/gpt-5.6-sol: Analyze the codebase and add tests...
-✅ [term] claude/claude-opus-5: Research image generation milestones...
+✅ [tmux] claude/claude-opus-5: Research image generation milestones...
 ✅ [tmux] gemini/gemini-2.5-pro: Add lifecycle supervision...
 ```
 
-`[tmux]` identifies a tmux window. `[term]` identifies a regular terminal when terminal-title override mode is enabled.
+TmuxCue manages tmux windows only; regular terminals outside tmux are left completely untouched.
 
 ## VS Code Remote
 
@@ -52,27 +52,6 @@ tmuxcue help
 
 `tmuxcue update` requires a clean Git worktree, uses `git pull --ff-only`, and runs the same safety checks as installation. Bash, Zsh, and Fish completion files are installed automatically; open a new shell to enable Tab completion.
 
-## Terminal title mode
-
-TmuxCue preserves native Codex, Claude, and Gemini terminal titles by default. Tmux integration remains enabled, but regular-terminal titles are not changed:
-
-```bash
-tmuxcue config terminal-title native
-```
-
-To let TmuxCue own regular-terminal titles and prevent competing running indicators, opt in with:
-
-```bash
-tmuxcue config terminal-title override
-```
-
-Override mode sets Codex `tui.terminal_title = []`, Claude
-`CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1`, and Gemini
-`ui.dynamicWindowTitle=false` plus `ui.showStatusInTitle=false`. Previous
-values are preserved for uninstall or native mode. Changes apply without
-restarting an existing process; a CLI version that does not reload settings
-dynamically picks them up in a newly started session.
-
 ## Review Codex hooks
 
 After installation, enter `/hooks` in Codex. The page always lists every supported lifecycle event; rows with `Installed 0` are built-in empty entries and require no action.
@@ -105,7 +84,7 @@ binds the current thread when it becomes discoverable.
 Command-line IDs, open rollout/writer-lock files, process logs, unique native
 title matches, and the existing creation-time-proximity heuristic retain
 their selection order. Proximity remains a heuristic, not an exact process
-binding. Regular-terminal fallback and Claude/Gemini behavior are unchanged.
+binding. Claude/Gemini behavior is unchanged.
 
 ## Codex Goal mode
 
@@ -190,7 +169,7 @@ A genuinely idle pane returns to `✅` without an added completion delay.
 Claude CLI sessions using Gemini-backed models follow these Claude rules;
 native Gemini CLI behavior is unchanged.
 
-Uninstalling with `tmuxcue uninstall` removes only TmuxCue services, hooks, display options, and installed files. It restores the previous native terminal-title and VS Code Remote settings and does not close or restart any tmux pane or terminal AI process.
+Uninstalling with `tmuxcue uninstall` removes only TmuxCue services, hooks, display options, and installed files. It restores any previous native terminal-title and VS Code Remote settings and does not close or restart any tmux pane or terminal AI process.
 
 ## Security
 
@@ -199,9 +178,7 @@ Uninstalling with `tmuxcue uninstall` removes only TmuxCue services, hooks, disp
 - Never runs `kill-session`, `kill-window`, `send-keys`, `attach`, `respawn`, or sends signals to AI processes.
 - Verifies that the tmux server, every tmux pane PID, and detected Codex, Claude, and Node-based Gemini process identities remain unchanged.
 - Uses no `#(...)` shell commands in tmux title formats.
-- Writes only a sanitized OSC title sequence to a foreground TTY owned by the current user.
-- Verifies `/proc/<pid>/fd/0` still points to that TTY before every title write.
-- Excludes every TTY owned by a tmux pane from direct-terminal updates.
+- Never writes to TTY devices or modifies terminals outside tmux.
 - Stores hook events with `0600` permissions.
 - Runs the user service with `NoNewPrivileges` and `UMask=0077`.
 

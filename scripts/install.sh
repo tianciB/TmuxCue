@@ -30,8 +30,6 @@ STAMP="$(date -u +%Y%m%d-%H%M%S)"
 RELEASE="$BASE/releases/$STAMP"
 TMP="$(mktemp -d)"
 PREVIOUS="$(readlink "$BASE/current" 2>/dev/null || true)"
-PREVIOUS_MODE="$(PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -c 'from tmuxcue.settings import title_mode; print(title_mode())')"
-TITLE_MODE_APPLIED=0
 SERVICE_WAS_ACTIVE=0
 systemctl --user is-active --quiet tmuxcue.service && SERVICE_WAS_ACTIVE=1
 [ -f "$SERVICE_FILE" ] && cp "$SERVICE_FILE" "$TMP/previous.service"
@@ -43,9 +41,6 @@ COMMITTED=0
 rollback() {
     status=$?
     if [ "$status" -ne 0 ] && [ "$COMMITTED" -eq 0 ]; then
-        if [ "$TITLE_MODE_APPLIED" -eq 1 ]; then
-            PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -c "from tmuxcue.settings import apply_title_mode; apply_title_mode('$PREVIOUS_MODE')" || true
-        fi
         if [ -n "$PREVIOUS" ]; then
             ln -s "$PREVIOUS" "$TMP/current.rollback"
             mv -Tf "$TMP/current.rollback" "$BASE/current"
@@ -128,8 +123,7 @@ systemctl --user is-active --quiet tmuxcue.service
 
 # Only after the new service is healthy do we update persistent configuration.
 "$PYTHON_BIN" "$ROOT/scripts/configure.py" install --root "$ROOT"
-TITLE_MODE_APPLIED=1
-PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -c "from pathlib import Path; from tmuxcue.settings import apply_title_mode, set_source_dir, title_mode; set_source_dir(Path('$ROOT')); apply_title_mode(title_mode())"
+PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -c "from pathlib import Path; from tmuxcue.settings import restore_native_titles, set_source_dir; restore_native_titles(); set_source_dir(Path('$ROOT'))"
 
 # Apply four display options directly. Never source the complete tmux config.
 if tmux list-sessions >/dev/null 2>&1; then

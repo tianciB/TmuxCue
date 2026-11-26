@@ -2,10 +2,8 @@
 
 ```text
 Codex / Claude / Gemini lifecycle hooks ─┐
-Codex / Claude / Gemini local metadata  ─┼─> one user-level Python service
-native tmux pane detector               ─┤              │
-foreground terminal detector           ─┘              ├─ tmux window options
-                                                        └─ sanitized OSC terminal title
+Codex / Claude / Gemini local metadata  ─┼─> one user-level Python service ─> tmux window options
+native tmux pane detector               ─┘
 ```
 
 ## Detection
@@ -14,19 +12,18 @@ TmuxCue uses native operating-system and tmux interfaces only:
 
 - `tmux list-panes` for pane identity, process, cwd, title, and TTY;
 - process inspection for foreground Codex, Claude, and official Node-based
-  Gemini CLI processes;
+  Gemini CLI processes running in tmux panes;
 - `tmux capture-pane` for a short, bounded tmux screen tail;
 - Codex, Claude, and Gemini lifecycle hooks for prompt, approval, completion,
   and session events;
 - local Codex, Claude, and Gemini metadata for model and topic labels;
-- read-only Codex, Claude, and bound Gemini session records for direct
-  terminals.
 - exact-thread Codex Goal state from the read-only `goals_*.sqlite`
   `thread_goals` table.
 - the Codex TUI side-context label, matched only within the final 20 captured
   pane lines.
 
-Direct-terminal discovery excludes every TTY owned by a tmux pane.
+TmuxCue tracks tmux panes exclusively and does not detect, maintain, or write
+to terminals outside tmux.
 
 Gemini CLI is identified from its exact official Node entry-point command
 rather than from a generic `node` process or a loose `gemini` substring.
@@ -42,21 +39,14 @@ unique native titles, and the existing creation-time-proximity heuristic
 all fail to select a candidate, the pane stays unbound. An empty session ID
 cannot select another thread's runtime snapshot or hooks. The existing
 native subject/directory label and native pane state remain available.
-Direct-terminal resolution keeps the legacy final fallback. This restriction
-does not make the remaining creation-time heuristic an exact binding.
+This restriction does not make the remaining creation-time heuristic an
+exact binding.
 
 ## Output safety
 
 Tmux formats contain no shell interpolation and never use `#(...)`. The updater
-runs outside tmux's redraw path and writes only window options.
-
-For a regular terminal, TmuxCue writes one sanitized OSC title sequence. Before
-every write it verifies that:
-
-- the target is a numeric `/dev/pts/*` character device;
-- the device and AI process belong to the current user;
-- `/proc/<pid>/fd/0` still points to the same TTY;
-- the opened file descriptor still matches the validated device.
+runs outside tmux's redraw path and writes only tmux window options. It never
+opens or writes to `/dev/pts/*` TTY devices.
 
 No input bytes, signals, attach commands, or process-control commands are sent.
 

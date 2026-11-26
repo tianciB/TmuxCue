@@ -29,7 +29,7 @@ PANES_BEFORE="$(tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_in
 AI_BEFORE="$(PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -m tmuxcue __process-snapshot)"
 
 PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -m tmuxcue.vscode uninstall
-PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -c 'from tmuxcue.settings import apply_title_mode; apply_title_mode("native")'
+PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -c 'from tmuxcue.settings import restore_native_titles; restore_native_titles()'
 systemctl --user disable --now tmuxcue.service >/dev/null 2>&1 || true
 rm -f "$SERVICE" "$BIN_DIR/tmuxcue" "$BIN_DIR/tmuxcue-hook" "$BIN_DIR/tmuxcue-service"
 rm -f "$HOME/.local/share/bash-completion/completions/tmuxcue" \

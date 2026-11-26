@@ -7,8 +7,7 @@ from pathlib import Path
 import re
 import shutil
 
-DEFAULTS = {"terminal_title": "native", "override_enabled_at": 0, "source_dir": ""}
-MANAGED_CODEX_LINE = "terminal_title = [] # managed by TmuxCue"
+DEFAULTS = {"source_dir": ""}
 
 
 def config_dir() -> Path:
@@ -22,34 +21,6 @@ def config_path() -> Path:
 
 def state_path() -> Path:
     return config_dir() / "native-title-state.json"
-
-
-def gemini_settings_registry_path() -> Path:
-    return config_dir() / "gemini-settings.json"
-
-
-def managed_gemini_settings_paths() -> list[Path]:
-    try:
-        data = json.loads(
-            gemini_settings_registry_path().read_text(encoding="utf-8")
-        )
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return []
-    values = data.get("paths") if isinstance(data, dict) else None
-    if not isinstance(values, list):
-        return []
-    paths: list[Path] = []
-    for value in values:
-        if not isinstance(value, str):
-            continue
-        path = Path(value)
-        if (
-            path.is_absolute()
-            and path.name == "settings.json"
-            and path.parent.name == ".gemini"
-        ):
-            paths.append(path)
-    return sorted(set(paths))
 
 
 def atomic_write(path: Path, text: str, mode: int = 0o600) -> None:
@@ -86,14 +57,11 @@ def load() -> dict:
             data.update(stored)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         pass
-    if data.get("terminal_title") not in {"override", "native"}:
-        data["terminal_title"] = DEFAULTS["terminal_title"]
     return data
 
 
 def save(data: dict) -> None:
-    clean = dict(DEFAULTS)
-    clean.update(data)
+    clean = {"source_dir": str(data.get("source_dir") or "")}
     atomic_write(config_path(), json.dumps(clean, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -108,17 +76,6 @@ def source_dir() -> Path | None:
     return Path(value) if value else None
 
 
-def title_mode() -> str:
-    return str(load()["terminal_title"])
-
-
-def title_override_since() -> int:
-    try:
-        return int(load().get("override_enabled_at") or 0)
-    except (TypeError, ValueError):
-        return 0
-
-
 def _load_state() -> dict:
     try:
         value = json.loads(state_path().read_text(encoding="utf-8"))
@@ -127,82 +84,12 @@ def _load_state() -> dict:
         return {}
 
 
-def _save_state(state: dict) -> None:
-    atomic_write(state_path(), json.dumps(state, ensure_ascii=False, indent=2) + "\n")
-
-
 def _codex_path() -> Path:
     return Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "config.toml"
 
 
 def _claude_path() -> Path:
     return Path(os.environ.get("CLAUDE_HOME", Path.home() / ".claude")) / "settings.json"
-
-
-def _disable_codex_title(state: dict) -> None:
-    path = _codex_path()
-    text = path.read_text(encoding="utf-8") if path.exists() else ""
-    lines = text.splitlines()
-    original = state.get("codex")
-    if original is None:
-        original = {"line": None, "kind": "section", "section_added": False}
-        dotted = next(
-            (i for i, line in enumerate(lines) if re.match(r"^\s*tui\.terminal_title\s*=", line)),
-            None,
-        )
-        if dotted is not None:
-            original.update({"line": lines[dotted], "kind": "dotted"})
-        else:
-            section = next(
-                (i for i, line in enumerate(lines) if re.match(r"^\s*\[tui\]\s*$", line)),
-                None,
-            )
-            if section is None:
-                original["section_added"] = True
-            else:
-                end = next(
-                    (i for i in range(section + 1, len(lines)) if re.match(r"^\s*\[", lines[i])),
-                    len(lines),
-                )
-                key = next(
-                    (i for i in range(section + 1, end) if re.match(r"^\s*terminal_title\s*=", lines[i])),
-                    None,
-                )
-                if key is not None:
-                    original["line"] = lines[key]
-        state["codex"] = original
-
-    dotted = next(
-        (i for i, line in enumerate(lines) if re.match(r"^\s*tui\.terminal_title\s*=", line)),
-        None,
-    )
-    if dotted is not None:
-        lines[dotted] = f"tui.{MANAGED_CODEX_LINE}"
-    else:
-        section = next(
-            (i for i, line in enumerate(lines) if re.match(r"^\s*\[tui\]\s*$", line)),
-            None,
-        )
-        if section is None:
-            if lines and lines[-1].strip():
-                lines.append("")
-            lines.extend(("[tui]", MANAGED_CODEX_LINE))
-        else:
-            end = next(
-                (i for i in range(section + 1, len(lines)) if re.match(r"^\s*\[", lines[i])),
-                len(lines),
-            )
-            key = next(
-                (i for i in range(section + 1, end) if re.match(r"^\s*terminal_title\s*=", lines[i])),
-                None,
-            )
-            if key is None:
-                lines.insert(end, MANAGED_CODEX_LINE)
-            else:
-                lines[key] = MANAGED_CODEX_LINE
-
-    backup(path)
-    atomic_write(path, "\n".join(lines).rstrip() + "\n")
 
 
 def _restore_codex_title(state: dict) -> None:
@@ -233,23 +120,6 @@ def _restore_codex_title(state: dict) -> None:
                     lines.pop(section)
     backup(path)
     atomic_write(path, "\n".join(lines).rstrip() + "\n")
-
-
-def _disable_claude_title(state: dict) -> None:
-    path = _claude_path()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except json.JSONDecodeError as error:
-        raise RuntimeError(f"Invalid Claude settings JSON: {path}") from error
-    env = data.setdefault("env", {})
-    if "claude" not in state:
-        state["claude"] = {
-            "present": "CLAUDE_CODE_DISABLE_TERMINAL_TITLE" in env,
-            "value": env.get("CLAUDE_CODE_DISABLE_TERMINAL_TITLE"),
-        }
-    env["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] = "1"
-    backup(path)
-    atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
 def _restore_claude_title(state: dict) -> None:
@@ -284,32 +154,6 @@ def _load_json_settings(path: Path, label: str) -> dict:
     if not isinstance(value, dict):
         raise RuntimeError(f"Invalid {label} settings JSON: {path}")
     return value
-
-
-def _disable_gemini_titles(state: dict) -> None:
-    gemini_state = state.setdefault("gemini", {})
-    for path in managed_gemini_settings_paths():
-        data = _load_json_settings(path, "Gemini")
-        ui = data.setdefault("ui", {})
-        if not isinstance(ui, dict):
-            raise RuntimeError(f"Invalid Gemini UI settings JSON: {path}")
-        gemini_state.setdefault(
-            str(path),
-            {
-                "dynamicWindowTitle": {
-                    "present": "dynamicWindowTitle" in ui,
-                    "value": ui.get("dynamicWindowTitle"),
-                },
-                "showStatusInTitle": {
-                    "present": "showStatusInTitle" in ui,
-                    "value": ui.get("showStatusInTitle"),
-                },
-            },
-        )
-        ui["dynamicWindowTitle"] = False
-        ui["showStatusInTitle"] = False
-        backup(path)
-        atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
 def _restore_gemini_titles(state: dict) -> None:
@@ -350,29 +194,16 @@ def _restore_gemini_titles(state: dict) -> None:
         atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
-def apply_title_mode(mode: str) -> None:
-    if mode not in {"override", "native"}:
-        raise ValueError("terminal title mode must be 'override' or 'native'")
-    data = load()
+def restore_native_titles() -> None:
+    """Restore any native terminal-title settings changed by older TmuxCue versions."""
     state = _load_state()
-    if mode == "override":
-        if data.get("terminal_title") != "override" or not data.get("override_enabled_at"):
-            data["override_enabled_at"] = int(datetime.now(timezone.utc).timestamp())
-        _disable_codex_title(state)
-        _save_state(state)
-        _disable_claude_title(state)
-        _save_state(state)
-        _disable_gemini_titles(state)
-        _save_state(state)
-    else:
+    if state:
         _restore_codex_title(state)
         _restore_claude_title(state)
         _restore_gemini_titles(state)
-        try:
-            state_path().unlink()
-        except FileNotFoundError:
-            pass
-    data["terminal_title"] = mode
-    if mode == "native":
-        data["override_enabled_at"] = 0
-    save(data)
+    try:
+        state_path().unlink()
+    except FileNotFoundError:
+        pass
+    if config_path().exists():
+        save(load())

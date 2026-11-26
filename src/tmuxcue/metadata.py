@@ -10,7 +10,7 @@ import subprocess
 import time
 from typing import Callable
 
-from .core import Metadata, PaneRow, TerminalRow, clean_text, is_generic_input, shorten
+from .core import Metadata, PaneRow, clean_text, is_generic_input, shorten
 from .gemini import (
     gemini_bound_session_id,
     gemini_configured_model,
@@ -23,7 +23,6 @@ from .processes import ProcessInfo, ProcessSnapshot, discover_agent_processes
 
 UUID_RE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b", re.I)
 RuntimeSnapshot = tuple[str | None, float]
-AgentRow = PaneRow | TerminalRow
 
 
 def event_timestamp(value: object) -> float:
@@ -95,30 +94,26 @@ class MetadataResolver:
 
     def resolve(
         self,
-        row: AgentRow,
+        row: PaneRow,
         processes: ProcessSnapshot | None = None,
         hook_events: dict[tuple[str, str], dict] | None = None,
     ) -> Metadata:
-        if isinstance(row, PaneRow):
-            cwd = row.cwd_hint or self.run(
-                "tmux", "display-message", "-p", "-t", row.pane, "#{pane_current_path}"
-            )
-            if row.pid:
-                process = (row.pid, row.started_at, row.cmdline)
-            elif processes is not None and row.tty:
-                process = processes.get((row.tty, row.agent))
-            else:
-                process = self.foreground_process(row.pane, row.agent, row.tty)
-        else:
-            cwd = row.cwd_hint
+        cwd = row.cwd_hint or self.run(
+            "tmux", "display-message", "-p", "-t", row.pane, "#{pane_current_path}"
+        )
+        if row.pid:
             process = (row.pid, row.started_at, row.cmdline)
+        elif processes is not None and row.tty:
+            process = processes.get((row.tty, row.agent))
+        else:
+            process = self.foreground_process(row.pane, row.agent, row.tty)
 
         if row.agent == "codex":
             model, topic, session_id = self.codex_metadata(
                 cwd,
                 process,
                 row.subject,
-                allow_cwd_fallback=not isinstance(row, PaneRow),
+                allow_cwd_fallback=False,
             )
         elif row.agent == "claude":
             model, topic, session_id = self.claude_metadata(

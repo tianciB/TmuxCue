@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from tmuxcue.core import Metadata, PaneRow, TerminalRow
+from tmuxcue.core import Metadata, PaneRow
 from tmuxcue.metadata import MetadataResolver, discover_agent_processes
 from tmuxcue.service import IndicatorDaemon
 
@@ -876,12 +876,6 @@ class CodexPaneIsolationTests(unittest.TestCase):
             ),
             ("", "", ""),
         )
-
-    def test_direct_terminal_keeps_old_cwd_fallback(self):
-        row = TerminalRow(
-            123, "/dev/pts/1", "codex", "idle", "/repo", 10_000, "codex",
-        )
-        self.assertEqual(self.resolver.resolve(row), self.old_metadata)
 
     def test_nearby_creation_still_binds_current_pane(self):
         self.add_thread(

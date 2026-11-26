@@ -21,7 +21,7 @@ class TitleModeTests(unittest.TestCase):
             },
         )
 
-    def test_native_is_default_and_override_restores_native_settings(self):
+    def test_restore_native_titles_recovers_legacy_override_settings(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "codex").mkdir()
@@ -31,19 +31,26 @@ class TitleModeTests(unittest.TestCase):
             gemini = root / "gemini-home/.gemini/settings.json"
             gemini.parent.mkdir(parents=True)
             codex.write_text(
-                '[tui]\nterminal_title = ["spinner", "project"]\n',
+                "[tui]\nterminal_title = [] # managed by TmuxCue\n",
                 encoding="utf-8",
             )
             claude.write_text(
-                json.dumps({"env": {"EXISTING": "1"}}),
+                json.dumps(
+                    {
+                        "env": {
+                            "EXISTING": "1",
+                            "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1",
+                        }
+                    }
+                ),
                 encoding="utf-8",
             )
             gemini.write_text(
                 json.dumps(
                     {
                         "ui": {
-                            "dynamicWindowTitle": True,
-                            "showStatusInTitle": True,
+                            "dynamicWindowTitle": False,
+                            "showStatusInTitle": False,
                             "theme": "Default",
                         }
                     }
@@ -52,27 +59,50 @@ class TitleModeTests(unittest.TestCase):
             )
 
             with self.environment(root):
-                registry = settings.gemini_settings_registry_path()
-                registry.parent.mkdir(parents=True)
-                registry.write_text(
-                    json.dumps({"paths": [str(gemini)]}),
+                settings.state_path().parent.mkdir(parents=True)
+                settings.state_path().write_text(
+                    json.dumps(
+                        {
+                            "codex": {
+                                "line": 'terminal_title = ["spinner", "project"]',
+                                "kind": "section",
+                                "section_added": False,
+                            },
+                            "claude": {"present": False, "value": None},
+                            "gemini": {
+                                str(gemini): {
+                                    "dynamicWindowTitle": {
+                                        "present": True,
+                                        "value": True,
+                                    },
+                                    "showStatusInTitle": {
+                                        "present": True,
+                                        "value": True,
+                                    },
+                                }
+                            },
+                        }
+                    ),
                     encoding="utf-8",
                 )
-                self.assertEqual(settings.title_mode(), "native")
-                settings.apply_title_mode("override")
-                self.assertGreater(settings.title_override_since(), 0)
-                self.assertIn("terminal_title = [] # managed by TmuxCue", codex.read_text())
-                self.assertEqual(tomllib.loads(codex.read_text())["tui"]["terminal_title"], [])
-                value = json.loads(claude.read_text())
-                self.assertEqual(value["env"]["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"], "1")
-                self.assertEqual(value["env"]["EXISTING"], "1")
-                value = json.loads(gemini.read_text())
-                self.assertFalse(value["ui"]["dynamicWindowTitle"])
-                self.assertFalse(value["ui"]["showStatusInTitle"])
-                self.assertEqual(value["ui"]["theme"], "Default")
+                settings.config_path().write_text(
+                    json.dumps(
+                        {
+                            "terminal_title": "override",
+                            "override_enabled_at": 123,
+                            "source_dir": str(root / "source"),
+                        }
+                    ),
+                    encoding="utf-8",
+                )
 
-                settings.apply_title_mode("native")
-                self.assertEqual(settings.title_override_since(), 0)
+                settings.restore_native_titles()
+
+                self.assertFalse(settings.state_path().exists())
+                self.assertEqual(
+                    json.loads(settings.config_path().read_text(encoding="utf-8")),
+                    {"source_dir": str(root / "source")},
+                )
                 self.assertIn(
                     'terminal_title = ["spinner", "project"]', codex.read_text()
                 )
@@ -93,25 +123,66 @@ class TitleModeTests(unittest.TestCase):
             root = Path(directory)
             (root / "codex").mkdir()
             (root / "claude").mkdir()
-            (root / "codex/config.toml").write_text("", encoding="utf-8")
-            (root / "claude/settings.json").write_text("{}", encoding="utf-8")
+            (root / "codex/config.toml").write_text(
+                "[tui]\nterminal_title = [] # managed by TmuxCue\n",
+                encoding="utf-8",
+            )
+            (root / "claude/settings.json").write_text(
+                json.dumps({"env": {"CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"}}),
+                encoding="utf-8",
+            )
             gemini = root / "gemini-home/.gemini/settings.json"
             gemini.parent.mkdir(parents=True)
             gemini.write_text(
-                json.dumps({"ui": {"theme": "Default"}}),
+                json.dumps(
+                    {
+                        "ui": {
+                            "dynamicWindowTitle": False,
+                            "showStatusInTitle": False,
+                            "theme": "Default",
+                        }
+                    }
+                ),
                 encoding="utf-8",
             )
 
             with self.environment(root):
-                registry = settings.gemini_settings_registry_path()
-                registry.parent.mkdir(parents=True)
-                registry.write_text(
-                    json.dumps({"paths": [str(gemini)]}),
+                settings.state_path().parent.mkdir(parents=True)
+                settings.state_path().write_text(
+                    json.dumps(
+                        {
+                            "codex": {
+                                "line": None,
+                                "kind": "section",
+                                "section_added": True,
+                            },
+                            "claude": {"present": False, "value": None},
+                            "gemini": {
+                                str(gemini): {
+                                    "dynamicWindowTitle": {
+                                        "present": False,
+                                        "value": None,
+                                    },
+                                    "showStatusInTitle": {
+                                        "present": False,
+                                        "value": None,
+                                    },
+                                }
+                            },
+                        }
+                    ),
                     encoding="utf-8",
                 )
-                settings.apply_title_mode("override")
-                settings.apply_title_mode("native")
+                settings.restore_native_titles()
 
+            self.assertEqual(
+                (root / "codex/config.toml").read_text(encoding="utf-8").strip(),
+                "",
+            )
+            self.assertEqual(
+                json.loads((root / "claude/settings.json").read_text(encoding="utf-8")),
+                {},
+            )
             value = json.loads(gemini.read_text())
             self.assertEqual(value, {"ui": {"theme": "Default"}})
 
@@ -123,19 +194,6 @@ class TitleModeTests(unittest.TestCase):
             with self.environment(root):
                 settings.set_source_dir(source)
                 self.assertEqual(settings.source_dir(), source.resolve())
-
-    def test_invalid_title_mode_falls_back_to_native(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            config = root / "config/tmuxcue/config.json"
-            config.parent.mkdir(parents=True)
-            config.write_text(
-                json.dumps({"terminal_title": "invalid"}),
-                encoding="utf-8",
-            )
-
-            with self.environment(root):
-                self.assertEqual(settings.title_mode(), "native")
 
 
 if __name__ == "__main__":

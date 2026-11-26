@@ -86,7 +86,6 @@ class TmuxDetector:
         self.uid = os.getuid() if uid is None else uid
         self.process_provider = process_provider
         self.processes: ProcessSnapshot = {}
-        self.pane_ttys: set[str] = set()
 
     def run(self, *args: str, timeout: float = 5) -> str:
         return self.command(tuple(args), timeout)
@@ -105,14 +104,11 @@ class TmuxDetector:
         output = self.run("tmux", "list-panes", "-a", "-F", format_string)
         self.processes = self.process_provider(self.proc_root, self.uid)
         selected: dict[str, PaneRow] = {}
-        self.pane_ttys = set()
         for line in output.splitlines():
             fields = line.split("\t", 5)
             if len(fields) != 6:
                 continue
             pane, location, current_command, cwd, title, tty = fields
-            if tty:
-                self.pane_ttys.add(tty)
             agent = self.identify_agent(current_command, tty, self.processes)
             if not agent:
                 continue

@@ -28,13 +28,15 @@ class CliTests(unittest.TestCase):
         self.assertIn("Codex, Claude, and Gemini", help_text)
         self.assertNotIn("__service", help_text)
 
-    def test_bash_completion_contains_public_commands_and_title_modes(self):
+    def test_bash_completion_contains_public_commands_only(self):
         output = io.StringIO()
         with redirect_stdout(output):
             self.assertEqual(print_completion("bash"), 0)
         completion = output.getvalue()
-        for value in ("update", "version", "uninstall", "help", "override", "native"):
+        for value in ("update", "version", "uninstall", "help"):
             self.assertIn(value, completion)
+        for removed in ("config", "terminal-title", "override", "native"):
+            self.assertNotIn(removed, completion)
 
     def test_hidden_process_snapshot_includes_node_based_gemini(self):
         bindings = [

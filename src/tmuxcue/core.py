@@ -26,18 +26,6 @@ class PaneRow:
 
 
 @dataclass(frozen=True)
-class TerminalRow:
-    pid: int
-    tty: str
-    agent: str
-    state: str
-    cwd_hint: str
-    started_at: int
-    cmdline: str
-    subject: str = ""
-
-
-@dataclass(frozen=True)
 class Metadata:
     agent: str
     model: str

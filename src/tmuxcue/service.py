@@ -9,13 +9,12 @@ import sys
 import time
 
 from . import __version__
-from .core import JsonlTail, Metadata, PaneRow, TerminalRow, icon_for, visual_state
+from .core import JsonlTail, Metadata, PaneRow, icon_for, visual_state
 from .detector import TmuxDetector
 from .events import EventReader
-from .metadata import AgentRow, MetadataResolver, default_command
+from .metadata import MetadataResolver, default_command
 from .processes import ProcessSnapshot, discover_all_agent_processes
-from .settings import apply_title_mode, source_dir, title_mode, title_override_since
-from .terminal import TerminalDetector, TerminalTitleWriter
+from .settings import source_dir
 
 HOME = Path.home()
 STOP = False
@@ -127,22 +126,15 @@ class IndicatorDaemon:
             0.0, float(os.environ.get("TMUXCUE_PROMPT_GRACE", "8"))
         )
         self.topic_width = int(os.environ.get("TMUXCUE_TOPIC_WIDTH", "38"))
-        self.terminal_titles = title_mode() == "override"
-        self.terminal_override_since = title_override_since()
-        self.terminal_refresh_interval = max(
-            0.05, float(os.environ.get("TMUXCUE_TERMINAL_REFRESH_INTERVAL", "5"))
-        )
 
         self.tmux = TmuxClient()
         self.tmux_detector = TmuxDetector()
-        self.terminal_detector = TerminalDetector()
-        self.terminal_writer = TerminalTitleWriter()
         self.metadata_resolver = MetadataResolver(topic_width=self.topic_width)
         self.event_reader = EventReader()
         codex_home = Path(os.environ.get("CODEX_HOME", HOME / ".codex"))
         self.history = JsonlTail(codex_home / "history.jsonl")
 
-        self.rows: dict[str, AgentRow] = {}
+        self.rows: dict[str, PaneRow] = {}
         self.row_identities: dict[str, tuple] = {}
         self.tmux_windows: set[str] = set()
         self.managed_tmux_windows: set[str] = set()
@@ -153,61 +145,40 @@ class IndicatorDaemon:
         self.runtime_times: dict[str, float] = {}
         self.runtime_event_times: dict[str, float] = {}
         self.raw_observation_times: dict[str, float] = {}
-        self.terminal_write_times: dict[str, float] = {}
         self.prompts: dict[str, dict] = {}
         self.recent_prompt_events: dict[str, float] = {}
         self.semantic: dict[str, tuple[str, str]] = {}
         self.last_scan = 0.0
 
     @staticmethod
-    def row_identity(row: AgentRow) -> tuple:
-        if isinstance(row, PaneRow):
-            return (
-                "tmux",
-                row.pane,
-                row.agent,
-                row.cwd_hint,
-                row.tty,
-                row.pid,
-                row.started_at,
-                row.side_active,
-            )
-        return ("terminal", row.pid, row.agent, row.started_at, row.tty)
+    def row_identity(row: PaneRow) -> tuple:
+        return (
+            "tmux",
+            row.pane,
+            row.agent,
+            row.cwd_hint,
+            row.tty,
+            row.pid,
+            row.started_at,
+            row.side_active,
+        )
 
     @staticmethod
-    def metadata_source_key(row: AgentRow) -> tuple:
-        if isinstance(row, PaneRow):
-            return (
-                "tmux",
-                row.pane,
-                row.agent,
-                row.cwd_hint,
-                row.tty,
-                row.pid,
-                row.started_at,
-                row.side_active,
-            )
-        return ("terminal", row.pid, row.agent, row.started_at)
+    def metadata_source_key(row: PaneRow) -> tuple:
+        return (
+            "tmux",
+            row.pane,
+            row.agent,
+            row.cwd_hint,
+            row.tty,
+            row.pid,
+            row.started_at,
+            row.side_active,
+        )
 
     def scan(self) -> None:
         scan_started = time.time()
-        self.terminal_titles = title_mode() == "override"
-        self.terminal_override_since = title_override_since()
-        tmux_rows = self.tmux_detector.scan()
-        terminal_rows = (
-            self.terminal_detector.scan(
-                self.tmux_detector.pane_ttys, self.tmux_detector.processes
-            )
-            if self.terminal_titles
-            else {}
-        )
-        if self.terminal_override_since:
-            terminal_rows = {
-                target: row
-                for target, row in terminal_rows.items()
-                if row.started_at >= self.terminal_override_since
-            }
-        rows = {**tmux_rows, **terminal_rows}
+        rows = self.tmux_detector.scan()
         identities = {target: self.row_identity(row) for target, row in rows.items()}
         for target, identity in identities.items():
             previous = self.row_identities.get(target)
@@ -244,7 +215,7 @@ class IndicatorDaemon:
     def refresh_metadata(
         self,
         target: str,
-        row: AgentRow,
+        row: PaneRow,
         now: float,
         processes: ProcessSnapshot | None = None,
         hook_events: dict[tuple[str, str], dict] | None = None,
@@ -268,10 +239,7 @@ class IndicatorDaemon:
         valid = [target for target in targets if target in self.rows]
         processes = (
             self.metadata_resolver.process_snapshot()
-            if any(
-                isinstance(self.rows[target], PaneRow) and not self.rows[target].pid
-                for target in valid
-            )
+            if any(not self.rows[target].pid for target in valid)
             else None
         )
         resolved: dict[tuple, Metadata] = {}
@@ -342,18 +310,14 @@ class IndicatorDaemon:
         }
         return {target for target, row in self.rows.items() if row.agent in agents}
 
-    def raw_state(self, target: str, row: AgentRow, metadata: Metadata, now: float) -> str:
-        if isinstance(row, PaneRow) and row.agent == "codex" and row.side_active:
+    def raw_state(self, target: str, row: PaneRow, metadata: Metadata, now: float) -> str:
+        if row.agent == "codex" and row.side_active:
             self.raw_observation_times[target] = self.last_scan
             return row.state
-        if isinstance(row, PaneRow) and row.state == "blocked":
+        if row.state == "blocked":
             self.raw_observation_times[target] = self.last_scan
             return row.state
-        if (
-            isinstance(row, PaneRow)
-            and row.state != "working"
-            and row.agent not in {"claude", "codex"}
-        ):
+        if row.state != "working" and row.agent not in {"claude", "codex"}:
             self.raw_observation_times[target] = self.last_scan
             return row.state
 
@@ -367,29 +331,21 @@ class IndicatorDaemon:
         event_time = self.runtime_event_times.get(target, 0.0)
         if (
             runtime_state == "goal_blocked"
-            and isinstance(row, PaneRow)
             and row.agent == "codex"
             and row.state == "working"
         ):
             self.raw_observation_times[target] = self.last_scan
             return "working"
         if runtime_state in {"goal_active", "goal_blocked"}:
-            observation_time = self.runtime_times.get(target, now)
-            if isinstance(row, PaneRow):
-                observation_time = max(observation_time, self.last_scan)
+            observation_time = max(self.runtime_times.get(target, now), self.last_scan)
             self.raw_observation_times[target] = observation_time
             return "working" if runtime_state == "goal_active" else "blocked"
-        if (
-            isinstance(row, PaneRow)
-            and row.agent == "codex"
-            and row.state != "working"
-        ):
+        if row.agent == "codex" and row.state != "working":
             self.raw_observation_times[target] = self.last_scan
             return row.state
         if runtime_state is not None:
             if (
-                isinstance(row, PaneRow)
-                and row.state == "working"
+                row.state == "working"
                 and runtime_state in {"idle", "aborted"}
                 and event_time > 0
             ):
@@ -400,7 +356,7 @@ class IndicatorDaemon:
                     self.raw_observation_times[target] = self.last_scan
                     return "working"
             observation_time = event_time or self.runtime_times.get(target, now)
-            if runtime_state == "working" and isinstance(row, PaneRow):
+            if runtime_state == "working":
                 if row.agent == "claude":
                     observation_time = max(
                         observation_time,
@@ -417,20 +373,15 @@ class IndicatorDaemon:
             if runtime_state == "idle":
                 return "idle"
 
-        self.raw_observation_times[target] = (
-            self.last_scan
-            if isinstance(row, PaneRow)
-            else self.runtime_times.get(target, self.last_scan)
-        )
+        self.raw_observation_times[target] = self.last_scan
         return row.state
 
-    def observation_time(self, row: AgentRow) -> float:
-        target = row.window if isinstance(row, PaneRow) else f"terminal:{row.pid}"
-        return self.raw_observation_times.get(target, self.last_scan)
+    def observation_time(self, row: PaneRow) -> float:
+        return self.raw_observation_times.get(row.window, self.last_scan)
 
     def resolve_state(
         self,
-        row: AgentRow,
+        row: PaneRow,
         raw_state: str,
         prompt: dict | None,
         hook_event: dict | None,
@@ -456,9 +407,8 @@ class IndicatorDaemon:
             if event_state == "ended":
                 return ""
 
-        target = row.window if isinstance(row, PaneRow) else f"terminal:{row.pid}"
-        runtime_state = self.runtime_states.get(target)
-        runtime_event_time = self.runtime_event_times.get(target, 0.0)
+        runtime_state = self.runtime_states.get(row.window)
+        runtime_event_time = self.runtime_event_times.get(row.window, 0.0)
         if (
             raw_state != "blocked"
             and runtime_state in {"idle", "aborted"}
@@ -478,16 +428,11 @@ class IndicatorDaemon:
         if prompt_is_newer:
             return state
         if hook_state == "approval":
-            if (
-                isinstance(row, PaneRow)
-                and self.observation_time(row) >= hook_timestamp
-            ):
+            if self.observation_time(row) >= hook_timestamp:
                 return state
             return "approval" if raw_state != "working" else state
         if hook_state == "running":
             if raw_state == "working":
-                return "running"
-            if isinstance(row, TerminalRow) and self.runtime_states.get(f"terminal:{row.pid}") is None:
                 return "running"
             return "running" if hook_age < self.prompt_grace else state
         if hook_state == "done":
@@ -497,15 +442,12 @@ class IndicatorDaemon:
         return state
 
     @staticmethod
-    def format_title(row: AgentRow, state: str, metadata: Metadata, now: float) -> tuple[str, str]:
-        icon = "🌒" if isinstance(row, TerminalRow) and state == "running" else icon_for(state, now)
-        source = "[term]" if isinstance(row, TerminalRow) else "[tmux]"
-        return icon, f"{icon} {source} {metadata.label}".strip()
+    def format_title(row: PaneRow, state: str, metadata: Metadata, now: float) -> tuple[str, str]:
+        icon = icon_for(state, now)
+        return icon, f"{icon} [tmux] {metadata.label}".strip()
 
-    def apply(self, target: str, row: AgentRow, values: tuple[str, str, str]) -> bool:
+    def apply(self, target: str, row: PaneRow, values: tuple[str, str, str]) -> bool:
         state, icon, title = values
-        if isinstance(row, TerminalRow):
-            return self.terminal_writer.write(row, title)
         return self.tmux.set_values(target, state, icon, title)
 
     def apply_targets(
@@ -521,11 +463,7 @@ class IndicatorDaemon:
             if row is None:
                 continue
             metadata = self.metadata.get(target) or Metadata(row.agent, "", row.subject, "")
-            side_active = (
-                isinstance(row, PaneRow)
-                and row.agent == "codex"
-                and row.side_active
-            )
+            side_active = row.agent == "codex" and row.side_active
             prompt = None if side_active else self.prompts.get(target)
             raw_state = self.raw_state(target, row, metadata, now)
             hook_event = None
@@ -537,18 +475,9 @@ class IndicatorDaemon:
 
             icon, title = self.format_title(row, state, metadata, now)
             values = (state, icon, title)
-            terminal_refresh = (
-                isinstance(row, TerminalRow)
-                and now - self.terminal_write_times.get(target, 0) >= self.terminal_refresh_interval
-            )
-            if self.applied.get(target) != values or terminal_refresh:
-                if isinstance(row, TerminalRow):
-                    if self.terminal_writer.write(row, title):
-                        self.applied[target] = values
-                        self.terminal_write_times[target] = now
-                else:
-                    tmux_updates.append((target, state, icon, title))
-                    pending_values[target] = values
+            if self.applied.get(target) != values:
+                tmux_updates.append((target, state, icon, title))
+                pending_values[target] = values
 
             semantic_value = (state, metadata.label)
             if self.semantic.get(target) != semantic_value:
@@ -563,12 +492,8 @@ class IndicatorDaemon:
         return False
 
     def cleanup_missing_targets(self) -> bool:
-        active_tmux = {
-            target for target, row in self.rows.items() if isinstance(row, PaneRow)
-        }
-        tracked_tmux = self.managed_tmux_windows | {
-            target for target in self.applied if not target.startswith("terminal:")
-        }
+        active_tmux = set(self.rows)
+        tracked_tmux = self.managed_tmux_windows | set(self.applied)
         stale_tmux = tracked_tmux - active_tmux
         existing = stale_tmux & self.tmux_windows
         missing = stale_tmux - self.tmux_windows
@@ -665,7 +590,6 @@ class IndicatorDaemon:
         self.runtime_times.pop(target, None)
         self.runtime_event_times.pop(target, None)
         self.raw_observation_times.pop(target, None)
-        self.terminal_write_times.pop(target, None)
         self.prompts.pop(target, None)
         self.semantic.pop(target, None)
         self.row_identities.pop(target, None)
@@ -694,8 +618,8 @@ def check_dependencies() -> int:
     ).returncode in {0, 1}
     tmux_ok = bool(default_command(("tmux", "-V")))
     print(f"systemd-user: {'ok' if systemd_ok else 'missing'}")
-    print(f"tmux: {'ok' if tmux_ok else 'optional (not installed)'}")
-    return 0 if systemd_ok else 1
+    print(f"tmux: {'ok' if tmux_ok else 'missing'}")
+    return 0 if systemd_ok and tmux_ok else 1
 
 
 def print_process_snapshot() -> int:
@@ -717,51 +641,37 @@ def run_script(path: Path) -> int:
 
 
 def print_completion(shell: str) -> int:
-    commands = "update version uninstall help config"
+    commands = "update version uninstall help"
     if shell == "bash":
         print(
             "_tmuxcue() {\n"
-            "  local cur prev\n"
+            "  local cur\n"
             "  COMPREPLY=()\n"
             "  cur=\"${COMP_WORDS[COMP_CWORD]}\"\n"
-            "  prev=\"${COMP_WORDS[COMP_CWORD-1]}\"\n"
             f"  if [[ ${{COMP_CWORD}} -eq 1 ]]; then COMPREPLY=( $(compgen -W \"{commands}\" -- \"$cur\") ); fi\n"
-            "  if [[ $prev == config ]]; then COMPREPLY=( $(compgen -W \"terminal-title\" -- \"$cur\") ); fi\n"
-            "  if [[ ${COMP_WORDS[1]} == config && $prev == terminal-title ]]; then COMPREPLY=( $(compgen -W \"override native\" -- \"$cur\") ); fi\n"
             "}\ncomplete -F _tmuxcue tmuxcue"
         )
     elif shell == "zsh":
         print(
             "#compdef tmuxcue\n"
-            "_arguments '1:command:(update version uninstall help config)' "
-            "'2:option:(terminal-title)' '3:mode:(override native)'"
+            "_arguments '1:command:(update version uninstall help)'"
         )
     elif shell == "fish":
         for command in commands.split():
             print(f"complete -c tmuxcue -f -n '__fish_use_subcommand' -a {command}")
-        print("complete -c tmuxcue -f -n '__fish_seen_subcommand_from config' -a terminal-title")
-        print("complete -c tmuxcue -f -n '__fish_seen_subcommand_from terminal-title' -a 'override native'")
     return 0
-
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tmuxcue",
-        description="Safe status titles for Codex, Claude, and Gemini terminals",
+        description="Safe status titles for Codex, Claude, and Gemini tmux windows",
     )
     subcommands = parser.add_subparsers(dest="command")
     subcommands.add_parser("update", help="update TmuxCue from its Git clone")
     subcommands.add_parser("version", help="print the installed version")
     subcommands.add_parser("uninstall", help="remove TmuxCue safely")
     subcommands.add_parser("help", help="show this help message")
-
-    config = subcommands.add_parser("config", help="change TmuxCue options")
-    config_subcommands = config.add_subparsers(dest="config_command")
-    terminal_title = config_subcommands.add_parser(
-        "terminal-title", help="choose whether TmuxCue overrides native terminal titles"
-    )
-    terminal_title.add_argument("mode", choices=("override", "native"))
     return parser
 
 
@@ -784,19 +694,6 @@ def entrypoint(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "version":
         print(f"TmuxCue {__version__}")
-        return 0
-    if args.command == "config":
-        if args.config_command != "terminal-title":
-            config_parser = build_parser()
-            config_parser.parse_args(["config", "--help"])
-            return 1
-        apply_title_mode(args.mode)
-        print(f"terminal-title: {args.mode}")
-        if args.mode == "override":
-            print(
-                "Native title generation is disabled for newly started "
-                "Codex, Claude, and Gemini sessions."
-            )
         return 0
     if args.command == "update":
         source = source_dir()

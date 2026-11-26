@@ -93,7 +93,7 @@ class InstallSafetyTests(unittest.TestCase):
         self.assertIn("git clone https://github.com/tianciB/TmuxCue.git", readme)
         self.assertIn("cd TmuxCue", readme)
         self.assertIn("tmuxcue update", readme)
-        self.assertIn("regular terminal", readme)
+        self.assertIn("regular terminals outside tmux are left completely untouched", readme)
         self.assertIn("server-side VS Code Remote", readme)
         self.assertIn("without per-client setup or a manual refresh", readme)
 
