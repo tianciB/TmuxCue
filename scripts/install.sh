@@ -125,11 +125,10 @@ systemctl --user is-active --quiet tmuxcue.service
 "$PYTHON_BIN" "$ROOT/scripts/configure.py" install --root "$ROOT"
 PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -c "from pathlib import Path; from tmuxcue.settings import restore_native_titles, set_source_dir; restore_native_titles(); set_source_dir(Path('$ROOT'))"
 
-# Apply tmux status-bar options directly without setting outer terminal titles.
-# Never source the complete tmux config.
+# Apply four display options directly. Never source the complete tmux config.
 if tmux list-sessions >/dev/null 2>&1; then
-    tmux set-option -gu set-titles >/dev/null 2>&1 || true
-    tmux set-option -gu set-titles-string >/dev/null 2>&1 || true
+    tmux set-option -g set-titles on
+    tmux set-option -g set-titles-string '#{?#{@agent_title},#{@agent_title},tmux #S:#I:#W}'
     tmux set-option -g window-status-format ' #{@agent_icon} #I:#W#{?window_flags,#{window_flags}, } '
     tmux set-option -g window-status-current-format ' #{@agent_icon} #I:#W#{?window_flags,#{window_flags}, } '
     tmux refresh-client -S >/dev/null 2>&1 || true
@@ -156,9 +155,17 @@ AI_AFTER="$(PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -m tmuxcue __process-snapshot)"
     exit 1
 }
 
-# Restore any legacy VS Code Remote terminal-tab title settings managed by older versions.
-PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -m tmuxcue.vscode uninstall
+# Configure server-side VS Code Remote titles only after process safety checks pass.
+PYTHONPATH="$ROOT/src" "$PYTHON_BIN" -m tmuxcue.vscode install
 COMMITTED=1
+
+# Re-emit each existing title. New tmux clients receive it automatically on attach.
+if tmux list-sessions >/dev/null 2>&1; then
+    while IFS= read -r window; do
+        title="$(tmux show-option -w -v -t "$window" @agent_title 2>/dev/null || true)"
+        [ -z "$title" ] || tmux set-option -w -t "$window" @agent_title "$title" >/dev/null 2>&1 || true
+    done < <(tmux list-windows -a -F '#{session_name}:#{window_index}')
+fi
 
 echo "TmuxCue installed. Existing tmux and terminal AI processes were left untouched."
 echo "Codex users: run /hooks once to review and trust the hooks."

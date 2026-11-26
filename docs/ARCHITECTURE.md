@@ -45,10 +45,8 @@ exact binding.
 ## Output safety
 
 Tmux formats contain no shell interpolation and never use `#(...)`. The updater
-runs outside tmux's redraw path and writes only tmux window options for the
-tmux status bar (`window-status-format` / `window-status-current-format`). It
-does not enable tmux `set-titles`, does not modify outer terminal tab titles or
-VS Code Remote settings, and never opens or writes to `/dev/pts/*` TTY devices.
+runs outside tmux's redraw path and writes only tmux window options. It never
+opens or writes to `/dev/pts/*` TTY devices.
 
 No input bytes, signals, attach commands, or process-control commands are sent.
 

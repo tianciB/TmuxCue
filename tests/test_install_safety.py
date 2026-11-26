@@ -44,13 +44,8 @@ class InstallSafetyTests(unittest.TestCase):
         self.assertIn("bash-completion", scripts[0])
         self.assertIn("site-functions", scripts[0])
         self.assertIn("fish/completions", scripts[0])
-        self.assertIn("tmuxcue.vscode uninstall", scripts[0])
-        self.assertNotIn("tmuxcue.vscode install", scripts[0])
-        self.assertNotIn("set-titles on", scripts[0])
-        self.assertIn("tmux set-option -gu set-titles", scripts[0])
-        self.assertIn("tmux set-option -gu set-titles-string", scripts[0])
+        self.assertIn("tmuxcue.vscode install", scripts[0])
         self.assertIn("tmuxcue.vscode uninstall", scripts[2])
-        self.assertIn("tmux set-option -gu set-titles", scripts[2])
         for script in scripts:
             self.assertGreaterEqual(script.count("__process-snapshot"), 2)
             self.assertNotIn("ps -eo uid=,pid=,comm=", script)
@@ -98,9 +93,9 @@ class InstallSafetyTests(unittest.TestCase):
         self.assertIn("git clone https://github.com/tianciB/TmuxCue.git", readme)
         self.assertIn("cd TmuxCue", readme)
         self.assertIn("tmuxcue update", readme)
-        self.assertIn("does not enable tmux `set-titles`", readme)
-        self.assertIn("leaves terminals outside tmux completely untouched", readme)
-        self.assertIn("restores any legacy VS Code Remote title settings", readme)
+        self.assertIn("regular terminals outside tmux are left completely untouched", readme)
+        self.assertIn("server-side VS Code Remote", readme)
+        self.assertIn("without per-client setup or a manual refresh", readme)
 
     def test_gemini_hook_template_is_observational_and_complete(self):
         template = json.loads((ROOT / "hooks/gemini-hooks.json.in").read_text())
