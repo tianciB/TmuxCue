@@ -48,10 +48,16 @@ WORKING_PATTERNS = (
 
 AGY_WORKING_PATTERNS = WORKING_PATTERNS + (
     r"esc to cancel",
+    r"press .+ to edit queued messages",
 )
 
 AGY_SPINNER_LINE = re.compile(
     r"^\s*[⠀-⣿]\s+\S+",
+)
+AGY_PROMPT = re.compile(r"^\s*>(?:\s|$)")
+AGY_SEPARATOR = re.compile(r"^[─━]{3,}$")
+AGY_STATUS_SUPPLEMENT = re.compile(
+    r"^\s*(?:└\s*Tip:|⎿|✓|●|○|▸|•)",
 )
 
 CLAUDE_ACTIVITY = re.compile(
@@ -213,11 +219,59 @@ class TmuxDetector:
         return False
 
     @staticmethod
-    def agy_footer_is_working(screen_lines: list[str]) -> bool:
-        """Check the active non-blank tail of an Agy TUI pane."""
-        tail = [line for line in screen_lines if line.strip()][-12:]
-        if not tail:
+    def _agy_composer_bounds(nonblank: list[str]) -> tuple[int, int] | None:
+        """Locate the last bounded Agy input composer (`---`, `>`, `---`)."""
+        for index in range(len(nonblank) - 1, -1, -1):
+            if not AGY_PROMPT.match(nonblank[index]):
+                continue
+            upper = index - 1
+            while upper >= 0 and not AGY_SEPARATOR.fullmatch(nonblank[upper].strip()):
+                if index - upper >= 6:
+                    upper = -1
+                    break
+                upper -= 1
+            if upper < 0:
+                continue
+            lower = index + 1
+            while lower < len(nonblank) and not AGY_SEPARATOR.fullmatch(nonblank[lower].strip()):
+                if lower - index >= 6:
+                    lower = len(nonblank)
+                    break
+                lower += 1
+            if lower < len(nonblank):
+                return upper, lower
+        return None
+
+    @classmethod
+    def agy_footer_is_working(cls, screen_lines: list[str]) -> bool:
+        """Check the active composer footer and status block of an Agy TUI pane."""
+        nonblank = [line for line in screen_lines if line.strip()][-25:]
+        if not nonblank:
             return False
+        bounds = cls._agy_composer_bounds(nonblank)
+        if bounds is not None:
+            upper, lower = bounds
+            footer = "\n".join(nonblank[lower + 1 :])
+            if any(
+                re.search(pattern, footer, flags=re.I | re.S)
+                for pattern in AGY_WORKING_PATTERNS
+            ):
+                return True
+            # Walk up across optional queued messages, tip lines, and checklist
+            # entries above the composer to find an active Braille spinner.
+            cursor = upper - 1
+            steps = 0
+            while cursor >= 0 and steps < 12:
+                line = nonblank[cursor]
+                if AGY_SPINNER_LINE.match(line):
+                    return True
+                if not AGY_STATUS_SUPPLEMENT.match(line):
+                    break
+                cursor -= 1
+                steps += 1
+            return False
+
+        tail = nonblank[-12:]
         if any(
             re.search(pattern, "\n".join(tail), flags=re.I | re.S)
             for pattern in AGY_WORKING_PATTERNS

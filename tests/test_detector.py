@@ -173,6 +173,53 @@ class DetectorTests(unittest.TestCase):
             "blocked",
         )
 
+        queued_checklist = (
+            "● Edited 1 file (plan.md) (ctrl+o to expand)\n"
+            "⣷  2/3 steps · Editing files... 18s\n"
+            "  ⎿  ✓ Audit git worktrees, mounts, and paths\n"
+            "     ✓ Map active path dependencies\n"
+            "     ● Design zero-breakage reorganization plan\n"
+            "▸ Show target layout (alt+m to send immediately)\n"
+            "────────\n"
+            ">\n"
+            "────────\n"
+            "  Press up to edit queued messages\n"
+            + "\n" * 40
+        )
+        self.assertEqual(
+            self.detector.detect_state("agy", "build-host", queued_checklist),
+            "working",
+        )
+
+        checklist_without_footer = (
+            "⣷  2/3 steps · Editing files... 18s\n"
+            "  ⎿  ✓ Step one\n"
+            "     ● Step two\n"
+            "     ○ Step three\n"
+            "└ Tip: Press ctrl+o to expand.\n"
+            "────────\n"
+            ">\n"
+            "────────\n"
+            + "\n" * 40
+        )
+        self.assertEqual(
+            self.detector.detect_state("agy", "build-host", checklist_without_footer),
+            "working",
+        )
+
+        prose_mentioning_esc = (
+            "You can press esc to cancel a running turn.\n"
+            "────────\n"
+            ">\n"
+            "────────\n"
+            "? for shortcuts\n"
+            + "\n" * 40
+        )
+        self.assertEqual(
+            self.detector.detect_state("agy", "build-host", prose_mentioning_esc),
+            "idle",
+        )
+
         idle = (
             "Analysis finished.\n"
             "────────\n"

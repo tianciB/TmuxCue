@@ -102,7 +102,15 @@ class TmuxClient:
         return self.clear_many([target])
 
     def refresh(self) -> None:
-        self.command("refresh-client", "-S")
+        output = self.command("list-clients", "-F", "#{client_tty}")
+        clients = [line for line in output.splitlines() if line]
+        if not clients:
+            self.command("refresh-client", "-S")
+            return
+        arguments: list[str] = []
+        for client in clients:
+            self._append_command(arguments, ("refresh-client", "-S", "-t", client))
+        self._run(arguments)
 
 
 class IndicatorDaemon:
@@ -343,6 +351,23 @@ class IndicatorDaemon:
         if row.agent == "codex" and row.state != "working":
             self.raw_observation_times[target] = self.last_scan
             return row.state
+        if row.agent == "agy":
+            # For Agy, the live tmux TUI is the most current state source:
+            # conversation_summaries.db can lag in BOTH directions (staying
+            # CASCADE_RUN_STATUS_IDLE while a turn is actively running, or
+            # staying CASCADE_RUN_STATUS_RUNNING briefly after cancel/finish).
+            if runtime_state == "blocked":
+                self.raw_observation_times[target] = max(
+                    event_time or self.runtime_times.get(target, now),
+                    self.last_scan,
+                    self.runtime_times.get(target, now),
+                )
+                return "blocked"
+            if row.state == "working":
+                self.raw_observation_times[target] = self.last_scan
+                return "working"
+            self.raw_observation_times[target] = self.last_scan
+            return row.state
         if runtime_state is not None:
             if (
                 row.state == "working"
@@ -363,7 +388,7 @@ class IndicatorDaemon:
                     self.runtime_times.get(target, now),
                 )
             elif runtime_state == "working":
-                if row.agent in {"claude", "agy"}:
+                if row.agent == "claude":
                     observation_time = max(
                         observation_time,
                         self.last_scan,
@@ -418,7 +443,8 @@ class IndicatorDaemon:
         runtime_state = self.runtime_states.get(row.window)
         runtime_event_time = self.runtime_event_times.get(row.window, 0.0)
         if (
-            raw_state != "blocked"
+            row.agent != "agy"
+            and raw_state != "blocked"
             and runtime_state in {"idle", "aborted"}
             and runtime_event_time > 0
             and runtime_event_time >= event_timestamp

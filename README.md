@@ -137,13 +137,13 @@ prompts, responses, transcript paths, or tool arguments.
 
 TmuxCue detects foreground `agy` processes running inside tmux panes (including
 wrapper-launched binaries), binds each pane to its active conversation from
-open `presence/*.lock` or `conversations/*.db` file descriptors (falling back
-to bound hooks or `--conversation`/`--resume` flags), and reads live run/step
-status from `~/.gemini/antigravity-cli` in read-only mode alongside the bounded
-tmux screen tail. Unrelated user hooks in `~/.gemini/config/hooks.json` are
-preserved and backed up. Legacy Gemini CLI hooks previously added by TmuxCue in
-`~/.gemini/settings.json` are cleaned up automatically during installation or
-uninstall.
+open `presence/*.lock` file descriptors (falling back to bound hooks or
+`--conversation`/`--resume` flags), and detects live work, queued messages, and
+approval prompts from the bounded Agy composer/status block plus waiting-step
+checks in `~/.gemini/antigravity-cli`. Unrelated user hooks in
+`~/.gemini/config/hooks.json` are preserved and backed up. Legacy Gemini CLI
+hooks previously added by TmuxCue in `~/.gemini/settings.json` are cleaned up
+automatically during installation or uninstall.
 
 Claude Code sessions that use custom API backends may emit an intermediate
 `Stop` event before all work has finished. For tmux panes, TmuxCue checks

@@ -27,13 +27,14 @@ to terminals outside tmux.
 
 Agy CLI is identified from foreground `agy` processes on the pane TTY (even
 when launched through a shell wrapper). Each Agy pane binds to its active
-conversation ID from open `presence/*.lock` or `conversations/*.db` file
-descriptors under `~/.gemini/antigravity-cli` (or the process's
-`ANTIGRAVITY_APP_DATA_DIR`), falling back to bound lifecycle hooks (matched by
+conversation ID from open `presence/*.lock` file descriptors under
+`~/.gemini/antigravity-cli` (or the process's `ANTIGRAVITY_APP_DATA_DIR`),
+ignoring transient `conversations/*.db` file descriptors opened during startup
+list or reconciliation. It falls back to bound lifecycle hooks (matched by
 PID, process start time, and TTY) or `--conversation`/`--resume` flags. Live
-status combines the bounded non-blank tmux screen tail with read-only SQLite
-inspection of `conversations/<id>.db` (waiting/running step statuses) and
-`conversation_summaries.db`.
+status reads the bounded Agy composer footer and preceding status/checklist
+block (including queued-message footers and Braille spinners) and supplements
+it with waiting-step approval checks from read-only `conversations/<id>.db`.
 
 Codex metadata resolution distinguishes earlier binding evidence from its
 final cwd-only fallback. For tmux panes, that final fallback is disabled:
@@ -63,13 +64,14 @@ No input bytes, signals, attach commands, or process-control commands are sent.
 All three agents use the same final visual mapping (`❓`, the rotating tmux
 moon, or `✅`).
 
-For Agy tmux panes, the detector inspects the non-blank tail of the captured
-screen (ignoring trailing padding lines) for approval prompts, `esc to cancel`,
-or an active Braille spinner line, and pairs that with read-only SQLite step
-and conversation summary status (`CASCADE_RUN_STATUS_RUNNING`/`BUSY`,
-`not_fully_idle`, and `WAITING`/`RUNNING` steps). A visible approval prompt or
-waiting step renders `❓`; active work renders the rotating moon; an idle
-conversation returns to `✅`.
+For Agy tmux panes, the detector locates the bounded input composer (`---`,
+`>`, `---`) within the non-blank tail, checks the footer below it for
+`esc to cancel` or queued-message hints, and walks up across optional tip,
+checklist, and queued-message lines above it for an active Braille spinner.
+Because `conversation_summaries.db` can lag behind live TUI state in both
+directions, the live pane observation is authoritative for running vs. idle,
+while a `WAITING` step in `conversations/<id>.db` or a visible approval prompt
+still promotes the pane to `❓`.
 
 For Claude tmux panes, a bound local session whose live status is `busy` is
 authoritative working evidence even when the native title is a static derived

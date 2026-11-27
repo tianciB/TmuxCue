@@ -141,6 +141,13 @@ def agy_open_conversation_ids(
     proc_root: Path = Path("/proc"),
     uid: int | None = None,
 ) -> set[str]:
+    """Return conversation IDs actively owned by this Agy process via presence locks.
+
+    Agy holds an exclusive lock under ``presence/<conversation_id>.lock`` only
+    for the conversation active in that process. Files under ``conversations/``
+    may also be opened transiently for other conversations during startup list
+    or background reconciliation, so they must not bind an unrelated pane.
+    """
     if pid <= 0:
         return set()
     uid = os.getuid() if uid is None else uid
@@ -163,18 +170,10 @@ def agy_open_conversation_ids(
             relative = target.relative_to(resolved_root)
         except (OSError, RuntimeError, ValueError):
             continue
-        if not relative.parts:
-            continue
-        first = relative.parts[0]
-        if first == "presence" and target.suffix == ".lock":
+        if len(relative.parts) >= 2 and relative.parts[0] == "presence" and target.suffix == ".lock":
             match = FULL_UUID_RE.fullmatch(target.stem)
-        elif first == "conversations" and target.suffix in {".db", ".db-wal", ".db-shm"}:
-            stem = target.name.split(".", 1)[0]
-            match = FULL_UUID_RE.fullmatch(stem)
-        else:
-            match = None
-        if match:
-            conversation_ids.add(match.group(0))
+            if match:
+                conversation_ids.add(match.group(0))
     return conversation_ids
 
 

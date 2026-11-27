@@ -93,10 +93,22 @@ class DaemonTests(unittest.TestCase):
             "running",
         )
 
-    def test_agy_working_scan_and_runtime_promote_or_block_state(self):
+    def test_agy_live_pane_beats_stale_db_summary_and_blocks_on_waiting_step(self):
         daemon = IndicatorDaemon()
         now = time.time()
-        row = PaneRow(
+        working_row = PaneRow(
+            "%2",
+            "a:0",
+            "agy",
+            "working",
+            "/repo",
+            "",
+            "/dev/pts/4",
+            321,
+            int(now - 100),
+            "/opt/agy/bin/agy --model neon-xhigh",
+        )
+        idle_row = PaneRow(
             "%2",
             "a:0",
             "agy",
@@ -110,15 +122,17 @@ class DaemonTests(unittest.TestCase):
         )
         metadata = Metadata("agy", "neon-xhigh", "topic", "conv-1")
         daemon.last_scan = now
-        daemon.metadata_resolver.runtime_snapshot = Mock(
-            return_value=("working", now - 10)
-        )
 
-        raw_state = daemon.raw_state("a:0", row, metadata, now)
+        # Live working pane stays running even when conversation_summaries.db
+        # reports stale CASCADE_RUN_STATUS_IDLE with a fresh WAL mtime.
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("idle", now + 1)
+        )
+        raw_state = daemon.raw_state("a:0", working_row, metadata, now)
         self.assertEqual(raw_state, "working")
         self.assertEqual(
             daemon.resolve_state(
-                row,
+                working_row,
                 raw_state,
                 None,
                 {"state": "done", "event": "Stop", "timestamp": now - 5},
@@ -127,14 +141,28 @@ class DaemonTests(unittest.TestCase):
             "running",
         )
 
+        # Live idle pane becomes done even when conversation_summaries.db lags
+        # behind as CASCADE_RUN_STATUS_RUNNING.
         daemon.runtime_times["a:0"] = 0
         daemon.metadata_resolver.runtime_snapshot = Mock(
-            return_value=("blocked", now)
+            return_value=("working", now)
         )
-        raw_state = daemon.raw_state("a:0", row, metadata, now + 2)
+        raw_state = daemon.raw_state("a:0", idle_row, metadata, now + 2)
+        self.assertEqual(raw_state, "idle")
+        self.assertEqual(
+            daemon.resolve_state(idle_row, raw_state, None, None, now + 2),
+            "done",
+        )
+
+        # Waiting-for-approval step in sqlite promotes an idle pane to blocked.
+        daemon.runtime_times["a:0"] = 0
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("blocked", now + 4)
+        )
+        raw_state = daemon.raw_state("a:0", idle_row, metadata, now + 4)
         self.assertEqual(raw_state, "blocked")
         self.assertEqual(
-            daemon.resolve_state(row, raw_state, None, None, now + 2),
+            daemon.resolve_state(idle_row, raw_state, None, None, now + 4),
             "approval",
         )
 
@@ -843,6 +871,35 @@ class DaemonTests(unittest.TestCase):
 
         self.assertTrue(daemon.update_once())
         self.assertEqual(order, ["apply", "metadata"])
+
+    def test_tmux_refresh_targets_every_attached_client(self):
+        client = TmuxClient()
+        client.command = Mock(return_value="/dev/pts/1\n/dev/pts/2\n/dev/pts/5\n")
+        client._run = Mock(return_value=True)
+
+        client.refresh()
+
+        client.command.assert_called_once_with(
+            "list-clients", "-F", "#{client_tty}"
+        )
+        client._run.assert_called_once_with(
+            [
+                "refresh-client",
+                "-S",
+                "-t",
+                "/dev/pts/1",
+                ";",
+                "refresh-client",
+                "-S",
+                "-t",
+                "/dev/pts/2",
+                ";",
+                "refresh-client",
+                "-S",
+                "-t",
+                "/dev/pts/5",
+            ]
+        )
 
     def test_tmux_write_timeout_is_recoverable(self):
         with patch(

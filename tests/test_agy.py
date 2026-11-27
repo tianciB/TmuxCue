@@ -118,7 +118,7 @@ class AgySessionTests(unittest.TestCase):
             )
             self.assertEqual(resolved, custom)
 
-    def test_open_conversation_ids_reads_presence_lock_and_db_fds(self):
+    def test_open_conversation_ids_reads_only_presence_lock_fds(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             state_dir = root / "home/.gemini/antigravity-cli"
@@ -126,6 +126,8 @@ class AgySessionTests(unittest.TestCase):
             (state_dir / "conversations").mkdir(parents=True)
             lock = state_dir / "presence" / f"{CONV_ONE}.lock"
             lock.touch()
+            # Background indexing / reconciliation may open another
+            # conversation's SQLite DB without owning its presence lock.
             db_wal = state_dir / "conversations" / f"{CONV_TWO}.db-wal"
             db_wal.touch()
             outside = root / f"{CONV_ONE}.lock"
@@ -144,7 +146,7 @@ class AgySessionTests(unittest.TestCase):
                 proc_root=proc,
                 uid=os.getuid(),
             )
-            self.assertEqual(found, {CONV_ONE, CONV_TWO})
+            self.assertEqual(found, {CONV_ONE})
 
     def test_runtime_snapshot_reports_waiting_running_and_idle(self):
         with tempfile.TemporaryDirectory() as directory:
