@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
-import re
 import time
 
 ProcessInfo = tuple[int, int, str]
@@ -13,11 +12,8 @@ AGENT_PROCESS_NAMES = {
     "codex": "codex",
     "claude": "claude",
     "claude-code": "claude",
+    "agy": "agy",
 }
-GEMINI_ENTRY = re.compile(
-    r"(?:^|\s)(?:\S*/)?node_modules/\.bin/gemini(?:\s|$)"
-    r"|(?:^|\s)\S*/@google/gemini-cli(?:/|\s|$)"
-)
 STOPPED_STATES = {"T", "t", "Z", "X"}
 
 
@@ -30,17 +26,8 @@ class ProcessBinding:
     cmdline: str
 
 
-def is_gemini_cli_command(command: str) -> bool:
-    return bool(GEMINI_ENTRY.search(" ".join((command or "").split())))
-
-
 def classify_agent(process_name: str, command: str) -> str:
-    agent = AGENT_PROCESS_NAMES.get((process_name or "").lower(), "")
-    if agent:
-        return agent
-    if (process_name or "").lower() == "node" and is_gemini_cli_command(command):
-        return "gemini"
-    return ""
+    return AGENT_PROCESS_NAMES.get((process_name or "").lower(), "")
 
 
 def _read_process_stat(path: Path) -> tuple[str, int, int, int, int] | None:
@@ -177,7 +164,7 @@ def discover_agent_processes(
     uid: int | None = None,
     now: float | None = None,
 ) -> ProcessSnapshot:
-    """Find foreground Codex, Claude, and Gemini processes in one /proc scan."""
+    """Find foreground Codex, Claude, and Agy processes in one /proc scan."""
     selected: dict[tuple[str, str], ProcessBinding] = {}
     for binding in discover_all_agent_processes(proc_root, uid, now):
         key = (binding.tty, binding.agent)

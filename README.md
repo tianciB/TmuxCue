@@ -1,6 +1,6 @@
 # TmuxCue
 
-TmuxCue shows the live status, model, and topic of Codex, Claude, and Gemini CLI sessions in tmux windows.
+TmuxCue shows the live status, model, and topic of Codex, Claude, and Agy CLI sessions in tmux windows.
 
 ## Status indicators
 
@@ -15,7 +15,7 @@ Example titles:
 ```text
 🌒 [tmux] codex/gpt-5.6-sol: Analyze the codebase and add tests...
 ✅ [tmux] claude/claude-opus-5: Research image generation milestones...
-✅ [tmux] gemini/gemini-2.5-pro: Add lifecycle supervision...
+✅ [tmux] agy/gemini-4-neon-xhigh: Analyze repository and cluster status...
 ```
 
 TmuxCue manages tmux windows only; regular terminals outside tmux are left completely untouched.
@@ -84,7 +84,7 @@ binds the current thread when it becomes discoverable.
 Command-line IDs, open rollout/writer-lock files, process logs, unique native
 title matches, and the existing creation-time-proximity heuristic retain
 their selection order. Proximity remains a heuristic, not an exact process
-binding. Claude/Gemini behavior is unchanged.
+binding. Claude and Agy behavior are unchanged.
 
 ## Codex Goal mode
 
@@ -120,40 +120,30 @@ Side context is detected only from the final 20 captured pane lines. TmuxCue
 stores only a boolean result: it does not read subagent spawn edges or persist
 side questions, history, labels, or thread IDs.
 
-## Review Gemini hooks
+## Review Agy hooks
 
-After installation, enter `/hooks panel` in Gemini CLI and review the five
-TmuxCue user hooks:
+After installation, enter `/hooks` in Agy CLI (or inspect `~/.gemini/config/hooks.json`) to review the `tmuxcue` user hooks:
 
 | Hook | Purpose | Expected command |
 |---|---|---|
-| `SessionStart` | Bind the Gemini session and show the waiting state | `"$HOME/.local/bin/tmuxcue-hook" --agent gemini --state done` |
-| `BeforeAgent` | Switch to the shared running indicator | `"$HOME/.local/bin/tmuxcue-hook" --agent gemini --state running` |
-| `Notification` with matcher `ToolPermission` | Show ❓ for a tool permission request | `"$HOME/.local/bin/tmuxcue-hook" --agent gemini --state approval` |
-| `AfterAgent` | Show ✅ when the turn finishes | `"$HOME/.local/bin/tmuxcue-hook" --agent gemini --state done` |
-| `SessionEnd` | Remove ended-session state | `"$HOME/.local/bin/tmuxcue-hook" --agent gemini --state ended` |
+| `SessionStart` | Bind the Agy conversation and show the waiting state | `"$HOME/.local/bin/tmuxcue-hook" --agent agy --state done` |
+| `PreInvocation` | Switch to the shared running indicator | `"$HOME/.local/bin/tmuxcue-hook" --agent agy --state running` |
+| `Stop` | Show ✅ when the execution loop terminates | `"$HOME/.local/bin/tmuxcue-hook" --agent agy --state done` |
 
-The `ToolPermission` hook is observational only: it cannot approve, deny, or
-modify Gemini's permission flow. Gemini event files contain the agent, session
-ID, state, event, timestamp, and an exact PID/start-time/TTY binding. They do
-not contain prompts, responses, transcript paths, working directories,
-notification messages, tool arguments, or permission details.
+Agy hooks are observational only: they output `{}` and never block, deny, or
+inject steps. Agy event files contain only the agent, conversation ID, state,
+event, timestamp, and an exact PID/start-time/TTY binding. They do not store
+prompts, responses, transcript paths, or tool arguments.
 
-Gemini also uses its native `✋ Action Required` title as an interactive-shell
-focus hint while a command may still be running automatically. TmuxCue shows
-`❓` only when a current confirmation dialog is visible near the bottom of the
-pane or a bound `ToolPermission` hook reports a real approval request.
-Otherwise that title is treated as running work.
-
-TmuxCue configures the default `~/.gemini/settings.json` and safe custom user
-settings discovered from running Gemini processes that set
-`GEMINI_CLI_HOME`. Existing settings and unrelated hooks are preserved and
-backed up. Repository-local `.gemini/settings.json` files are never modified.
-
-Gemini model and topic labels are read from only the session bound by PID,
-process start time, TTY, and session ID. If a pre-hook session has multiple
-possible transcripts in the same working directory, TmuxCue leaves it
-unbound instead of borrowing another session's state or topic.
+TmuxCue detects foreground `agy` processes running inside tmux panes (including
+wrapper-launched binaries), binds each pane to its active conversation from
+open `presence/*.lock` or `conversations/*.db` file descriptors (falling back
+to bound hooks or `--conversation`/`--resume` flags), and reads live run/step
+status from `~/.gemini/antigravity-cli` in read-only mode alongside the bounded
+tmux screen tail. Unrelated user hooks in `~/.gemini/config/hooks.json` are
+preserved and backed up. Legacy Gemini CLI hooks previously added by TmuxCue in
+`~/.gemini/settings.json` are cleaned up automatically during installation or
+uninstall.
 
 Claude Code sessions that use custom API backends may emit an intermediate
 `Stop` event before all work has finished. For tmux panes, TmuxCue checks
@@ -166,17 +156,16 @@ A real approval dialog still takes priority and shows `❓`.
 Only a current, bounded footer is used: old output, quoted status text,
 completion summaries, and the static `✳` title do not imply ongoing work.
 A genuinely idle pane returns to `✅` without an added completion delay.
-Claude CLI sessions using Gemini-backed models follow these Claude rules;
-native Gemini CLI behavior is unchanged.
+Claude CLI sessions using custom model backends follow these Claude rules.
 
 Uninstalling with `tmuxcue uninstall` removes only TmuxCue services, hooks, display options, and installed files. It restores any previous native terminal-title and VS Code Remote settings and does not close or restart any tmux pane or terminal AI process.
 
 ## Security
 
 - Refuses installation as `root` and never requires `sudo`.
-- Backs up tmux, Codex, Claude, Gemini, and existing VS Code Remote configuration before editing.
+- Backs up tmux, Codex, Claude, Agy, and existing VS Code Remote configuration before editing.
 - Never runs `kill-session`, `kill-window`, `send-keys`, `attach`, `respawn`, or sends signals to AI processes.
-- Verifies that the tmux server, every tmux pane PID, and detected Codex, Claude, and Node-based Gemini process identities remain unchanged.
+- Verifies that the tmux server, every tmux pane PID, and detected Codex, Claude, and Agy process identities remain unchanged.
 - Uses no `#(...)` shell commands in tmux title formats.
 - Never writes to TTY devices or modifies terminals outside tmux.
 - Stores hook events with `0600` permissions.

@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import sys
 
 BLOCKS = (("# BEGIN tmuxcue", "# END tmuxcue"),)
 HOOK_MARKERS = ("tmuxcue-hook", "tmuxcue.hook")
@@ -55,6 +54,34 @@ def hook_is_ours(group: dict) -> bool:
     )
 
 
+def agy_handler_is_ours(entry: object) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    if any(marker in str(entry.get("command", "")) for marker in HOOK_MARKERS):
+        return True
+    hooks = entry.get("hooks")
+    if isinstance(hooks, list):
+        return any(
+            isinstance(item, dict)
+            and any(marker in str(item.get("command", "")) for marker in HOOK_MARKERS)
+            for item in hooks
+        )
+    return False
+
+
+def agy_spec_is_ours(name: str, spec: object) -> bool:
+    if not isinstance(spec, dict):
+        return False
+    if name == "tmuxcue":
+        return True
+    for key, value in spec.items():
+        if key == "enabled":
+            continue
+        if isinstance(value, list) and any(agy_handler_is_ours(item) for item in value):
+            return True
+    return False
+
+
 def load_json(path: Path) -> dict:
     if not path.exists():
         return {}
@@ -98,6 +125,34 @@ def remove_hooks(path: Path) -> None:
     atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
+def merge_agy_hooks(path: Path, template: Path) -> None:
+    data = load_json(path)
+    for name in list(data):
+        if agy_spec_is_ours(name, data[name]):
+            data.pop(name, None)
+    additions = json.loads(template.read_text(encoding="utf-8"))
+    for name, spec in additions.items():
+        data[name] = spec
+    atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+def remove_agy_hooks(path: Path) -> None:
+    if not path.exists():
+        return
+    data = load_json(path)
+    changed = False
+    for name in list(data):
+        if agy_spec_is_ours(name, data[name]):
+            data.pop(name, None)
+            changed = True
+    if not changed:
+        return
+    if data:
+        atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    else:
+        path.unlink()
+
+
 def tmuxcue_config_dir(home: Path) -> Path:
     if home.resolve() == Path.home().resolve():
         base = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
@@ -106,11 +161,11 @@ def tmuxcue_config_dir(home: Path) -> Path:
     return base / "tmuxcue"
 
 
-def gemini_registry_path(home: Path) -> Path:
+def legacy_gemini_registry_path(home: Path) -> Path:
     return tmuxcue_config_dir(home) / "gemini-settings.json"
 
 
-def safe_gemini_settings_path(
+def safe_legacy_gemini_settings_path(
     path: Path, *, uid: int | None = None
 ) -> Path | None:
     uid = os.getuid() if uid is None else uid
@@ -135,51 +190,8 @@ def safe_gemini_settings_path(
     return candidate
 
 
-def discover_gemini_settings_paths(root: Path, home: Path) -> set[Path]:
-    paths: set[Path] = set()
-    default = safe_gemini_settings_path(home / ".gemini/settings.json")
-    if default is not None:
-        paths.add(default)
-
-    source = str((root / "src").resolve())
-    if source not in sys.path:
-        sys.path.insert(0, source)
-    from tmuxcue.processes import (  # pylint: disable=import-outside-toplevel
-        discover_agent_processes,
-        read_process_environment_value,
-    )
-
-    for (_tty, agent), process in discover_agent_processes().items():
-        if agent != "gemini":
-            continue
-        value = read_process_environment_value(process[0], "GEMINI_CLI_HOME")
-        if not value:
-            continue
-        custom_home = Path(value)
-        try:
-            if (
-                not custom_home.is_absolute()
-                or custom_home.stat().st_uid != os.getuid()
-            ):
-                continue
-        except OSError:
-            continue
-        candidate = safe_gemini_settings_path(
-            custom_home / ".gemini/settings.json"
-        )
-        if candidate is not None:
-            paths.add(candidate)
-    return paths
-
-
-def write_gemini_registry(home: Path, paths: set[Path]) -> None:
-    path = gemini_registry_path(home)
-    data = {"paths": sorted(str(item) for item in paths)}
-    atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
-
-
-def read_gemini_registry(home: Path) -> set[Path]:
-    path = gemini_registry_path(home)
+def read_legacy_gemini_registry(home: Path) -> set[Path]:
+    path = legacy_gemini_registry_path(home)
     if not path.exists():
         return set()
     data = load_json(path)
@@ -190,32 +202,51 @@ def read_gemini_registry(home: Path) -> set[Path]:
     for value in values:
         if not isinstance(value, str):
             continue
-        candidate = safe_gemini_settings_path(Path(value))
+        candidate = safe_legacy_gemini_settings_path(Path(value))
         if candidate is not None:
             paths.add(candidate)
     return paths
 
 
-def install(
-    root: Path,
-    home: Path,
-    gemini_settings_paths: set[Path] | None = None,
-) -> None:
+def cleanup_legacy_gemini_hooks(home: Path) -> None:
+    paths = read_legacy_gemini_registry(home)
+    default = safe_legacy_gemini_settings_path(home / ".gemini/settings.json")
+    if default is not None and default.exists():
+        paths.add(default)
+    for path in sorted(paths):
+        if not path.exists():
+            continue
+        try:
+            data = load_json(path)
+        except RuntimeError:
+            continue
+        hooks = data.get("hooks")
+        if not isinstance(hooks, dict):
+            continue
+        if any(
+            hook_is_ours(group)
+            for groups in hooks.values()
+            if isinstance(groups, list)
+            for group in groups
+            if isinstance(group, dict)
+        ):
+            backup(path)
+            remove_hooks(path)
+    try:
+        legacy_gemini_registry_path(home).unlink()
+    except FileNotFoundError:
+        pass
+
+
+def install(root: Path, home: Path) -> None:
     tmux_conf = Path(os.environ.get("TMUX_CONF", home / ".tmux.conf"))
     codex_hooks = home / ".codex/hooks.json"
     claude_settings = home / ".claude/settings.json"
-    if gemini_settings_paths is None:
-        gemini_settings = discover_gemini_settings_paths(root, home)
-    else:
-        gemini_settings = {
-            candidate
-            for path in gemini_settings_paths
-            if (candidate := safe_gemini_settings_path(path)) is not None
-        }
+    agy_hooks = home / ".gemini/config/hooks.json"
 
-    for path in (codex_hooks, claude_settings, *gemini_settings):
+    for path in (codex_hooks, claude_settings, agy_hooks):
         load_json(path)
-    for path in (tmux_conf, codex_hooks, claude_settings, *gemini_settings):
+    for path in (tmux_conf, codex_hooks, claude_settings, agy_hooks):
         backup(path)
 
     current = tmux_conf.read_text(encoding="utf-8") if tmux_conf.exists() else ""
@@ -223,28 +254,23 @@ def install(
     atomic_write(tmux_conf, without_blocks(current).rstrip() + "\n\n" + block + "\n")
     merge_hooks(codex_hooks, root / "hooks/codex-hooks.json.in", codex=True)
     merge_hooks(claude_settings, root / "hooks/claude-hooks.json.in")
-    for path in sorted(gemini_settings):
-        merge_hooks(path, root / "hooks/gemini-hooks.json.in")
-    write_gemini_registry(home, gemini_settings)
+    merge_agy_hooks(agy_hooks, root / "hooks/agy-hooks.json.in")
+    cleanup_legacy_gemini_hooks(home)
 
 
 def uninstall(home: Path) -> None:
     tmux_conf = Path(os.environ.get("TMUX_CONF", home / ".tmux.conf"))
     codex_hooks = home / ".codex/hooks.json"
     claude_settings = home / ".claude/settings.json"
-    gemini_settings = read_gemini_registry(home)
-    for path in (tmux_conf, codex_hooks, claude_settings, *gemini_settings):
+    agy_hooks = home / ".gemini/config/hooks.json"
+    for path in (tmux_conf, codex_hooks, claude_settings, agy_hooks):
         backup(path)
     if tmux_conf.exists():
         atomic_write(tmux_conf, without_blocks(tmux_conf.read_text(encoding="utf-8")) + "\n")
     remove_hooks(codex_hooks)
     remove_hooks(claude_settings)
-    for path in sorted(gemini_settings):
-        remove_hooks(path)
-    try:
-        gemini_registry_path(home).unlink()
-    except FileNotFoundError:
-        pass
+    remove_agy_hooks(agy_hooks)
+    cleanup_legacy_gemini_hooks(home)
 
 
 def main() -> int:

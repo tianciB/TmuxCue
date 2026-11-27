@@ -1,9 +1,9 @@
 # Architecture
 
 ```text
-Codex / Claude / Gemini lifecycle hooks ─┐
-Codex / Claude / Gemini local metadata  ─┼─> one user-level Python service ─> tmux window options
-native tmux pane detector               ─┘
+Codex / Claude / Agy lifecycle hooks ─┐
+Codex / Claude / Agy local metadata  ─┼─> one user-level Python service ─> tmux window options
+native tmux pane detector            ─┘
 ```
 
 ## Detection
@@ -11,12 +11,12 @@ native tmux pane detector               ─┘
 TmuxCue uses native operating-system and tmux interfaces only:
 
 - `tmux list-panes` for pane identity, process, cwd, title, and TTY;
-- process inspection for foreground Codex, Claude, and official Node-based
-  Gemini CLI processes running in tmux panes;
+- process inspection for foreground Codex, Claude, and Agy CLI processes
+  running in tmux panes;
 - `tmux capture-pane` for a short, bounded tmux screen tail;
-- Codex, Claude, and Gemini lifecycle hooks for prompt, approval, completion,
+- Codex, Claude, and Agy lifecycle hooks for prompt, approval, completion,
   and session events;
-- local Codex, Claude, and Gemini metadata for model and topic labels;
+- local Codex, Claude, and Agy metadata for model and topic labels;
 - exact-thread Codex Goal state from the read-only `goals_*.sqlite`
   `thread_goals` table.
 - the Codex TUI side-context label, matched only within the final 20 captured
@@ -25,12 +25,15 @@ TmuxCue uses native operating-system and tmux interfaces only:
 TmuxCue tracks tmux panes exclusively and does not detect, maintain, or write
 to terminals outside tmux.
 
-Gemini CLI is identified from its exact official Node entry-point command
-rather than from a generic `node` process or a loose `gemini` substring.
-Gemini hook events bind a row by PID, process start time, and TTY. The bound
-session UUID selects one JSONL transcript. A legacy fallback is accepted only
-when exactly one transcript matches the working directory and process
-incarnation.
+Agy CLI is identified from foreground `agy` processes on the pane TTY (even
+when launched through a shell wrapper). Each Agy pane binds to its active
+conversation ID from open `presence/*.lock` or `conversations/*.db` file
+descriptors under `~/.gemini/antigravity-cli` (or the process's
+`ANTIGRAVITY_APP_DATA_DIR`), falling back to bound lifecycle hooks (matched by
+PID, process start time, and TTY) or `--conversation`/`--resume` flags. Live
+status combines the bounded non-blank tmux screen tail with read-only SQLite
+inspection of `conversations/<id>.db` (waiting/running step statuses) and
+`conversation_summaries.db`.
 
 Codex metadata resolution distinguishes earlier binding evidence from its
 final cwd-only fallback. For tmux panes, that final fallback is disabled:
@@ -57,16 +60,16 @@ No input bytes, signals, attach commands, or process-control commands are sent.
   metadata indicates active work;
 - `done`: the turn completed or was interrupted, and the agent is waiting for the next prompt.
 
-All three agents use the same final visual mapping. Gemini native titles
-(`✋ Action Required`, `✦ Working`, and `◇ Ready`) are raw observations only;
-TmuxCue still renders `❓`, the rotating tmux moon, or `✅`.
+All three agents use the same final visual mapping (`❓`, the rotating tmux
+moon, or `✅`).
 
-Gemini's `✋ Action Required` title is ambiguous: the CLI also uses it when an
-interactive shell has produced output and is waiting for focus while work may
-continue automatically. TmuxCue classifies that title as approval only when
-the bounded screen tail contains a current confirmation dialog. Without that
-corroboration it is live working evidence. A bound `ToolPermission` hook
-remains independent high-confidence approval evidence.
+For Agy tmux panes, the detector inspects the non-blank tail of the captured
+screen (ignoring trailing padding lines) for approval prompts, `esc to cancel`,
+or an active Braille spinner line, and pairs that with read-only SQLite step
+and conversation summary status (`CASCADE_RUN_STATUS_RUNNING`/`BUSY`,
+`not_fully_idle`, and `WAITING`/`RUNNING` steps). A visible approval prompt or
+waiting step renders `❓`; active work renders the rotating moon; an idle
+conversation returns to `✅`.
 
 For Claude tmux panes, a bound local session whose live status is `busy` is
 authoritative working evidence even when the native title is a static derived
@@ -124,6 +127,5 @@ thread IDs.
 ```
 
 Install, update, and uninstall scripts verify that the tmux server, all pane
-PIDs, and all detected Codex, Claude, and Gemini process identities remain
-unchanged. Gemini identities include every recognized Node layer and its
-process start time and TTY.
+PIDs, and all detected Codex, Claude, and Agy process identities remain
+unchanged.

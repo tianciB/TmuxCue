@@ -25,7 +25,7 @@ class CliTests(unittest.TestCase):
         help_text = output.getvalue()
         for command in ("update", "version", "uninstall", "help"):
             self.assertIn(command, help_text)
-        self.assertIn("Codex, Claude, and Gemini", help_text)
+        self.assertIn("Codex, Claude, and Agy", help_text)
         self.assertNotIn("__service", help_text)
 
     def test_bash_completion_contains_public_commands_only(self):
@@ -38,14 +38,14 @@ class CliTests(unittest.TestCase):
         for removed in ("config", "terminal-title", "override", "native"):
             self.assertNotIn(removed, completion)
 
-    def test_hidden_process_snapshot_includes_node_based_gemini(self):
+    def test_hidden_process_snapshot_includes_agy(self):
         bindings = [
             ProcessBinding(
-                agent="gemini",
+                agent="agy",
                 pid=202,
                 started_at=900,
-                tty="/dev/pts/7",
-                cmdline="node /opt/node_modules/.bin/gemini",
+                tty="/dev/pts/4",
+                cmdline="/opt/agy/bin/agy --model neon-xhigh",
             ),
             ProcessBinding(
                 agent="codex",
@@ -68,8 +68,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(
             output.getvalue().splitlines(),
             [
+                "agy:202:900:/dev/pts/4",
                 "codex:101:800:/dev/pts/1",
-                "gemini:202:900:/dev/pts/7",
             ],
         )
 

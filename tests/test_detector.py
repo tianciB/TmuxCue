@@ -72,19 +72,26 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(rows["s:0"].state, "working")
         self.assertFalse(any(args[0] == "ps" for args in commands))
 
-    def test_scan_recognizes_wrapped_gemini_process(self):
+    def test_scan_recognizes_wrapped_agy_process(self):
         def command(args, _timeout=5):
             if args[:3] == ("tmux", "list-panes", "-a"):
-                return "%1\ts:0.0\tbash\t/tmp\t◇  Ready (tmp)\t/dev/pts/7"
+                return "%2\ts:0.0\tbash\t/tmp\thostname\t/dev/pts/4"
             if len(args) > 1 and args[1] == "capture-pane":
-                return ""
+                return (
+                    "⣷  Running command... 18s\n"
+                    "────────\n"
+                    ">\n"
+                    "────────\n"
+                    "esc to cancel          Gemini 4 Neon · xhigh\n"
+                    + "\n" * 40
+                )
             return ""
 
         processes = {
-            ("/dev/pts/7", "gemini"): (
+            ("/dev/pts/4", "agy"): (
                 202,
                 100,
-                "node /opt/node_modules/.bin/gemini",
+                "/opt/agy/bin/agy --model neon-xhigh --effort xhigh",
             )
         }
         detector = TmuxDetector(
@@ -95,7 +102,8 @@ class DetectorTests(unittest.TestCase):
         rows = detector.scan()
 
         self.assertEqual(rows["s:0"].pid, 202)
-        self.assertEqual(rows["s:0"].agent, "gemini")
+        self.assertEqual(rows["s:0"].agent, "agy")
+        self.assertEqual(rows["s:0"].state, "working")
 
     def test_braille_title_is_working(self):
         self.assertEqual(self.detector.detect_state("codex", "⠙ Codex", ""), "working")
@@ -128,66 +136,65 @@ class DetectorTests(unittest.TestCase):
             "idle",
         )
 
-    def test_gemini_native_titles_map_to_shared_states(self):
-        self.assertEqual(
-            self.detector.detect_state("gemini", "✦ Working (repo)", ""),
-            "working",
+    def test_agy_states_handle_trailing_blank_lines(self):
+        working = (
+            "⣷  Running command... 18s\n"
+            "────────\n"
+            ">\n"
+            "────────\n"
+            "esc to cancel\n"
+            + "\n" * 40
         )
         self.assertEqual(
-            self.detector.detect_state("gemini", "⏲ Working… (repo)", ""),
+            self.detector.detect_state("agy", "build-host", working),
             "working",
-        )
-        self.assertEqual(
-            self.detector.detect_state("gemini", "✋ Action Required (repo)", ""),
-            "working",
-        )
-        self.assertEqual(
-            self.detector.detect_state("gemini", "◇ Ready (repo)", ""),
-            "idle",
         )
 
-    def test_gemini_action_title_with_confirmation_dialog_is_blocked(self):
-        screen = "Action Required\nAllow once\nAllow for this session"
+        spinner_only = (
+            "⣯  Thinking... 5s\n"
+            "────────\n"
+            ">\n"
+            "────────\n"
+            + "\n" * 40
+        )
         self.assertEqual(
-            self.detector.detect_state(
-                "gemini",
-                "✋ Action Required (repo)",
-                screen,
-            ),
+            self.detector.detect_state("agy", "build-host", spinner_only),
+            "working",
+        )
+
+        approval = (
+            "Run this command?\n"
+            "Yes, allow tool call\n"
+            "No, deny tool call\n"
+            + "\n" * 40
+        )
+        self.assertEqual(
+            self.detector.detect_state("agy", "build-host", approval),
             "blocked",
         )
 
-    def test_old_gemini_confirmation_text_outside_tail_does_not_block(self):
-        screen = "Action Required\nAllow once\n" + "\n".join(
-            f"output {index}" for index in range(13)
+        idle = (
+            "Analysis finished.\n"
+            "────────\n"
+            ">\n"
+            "────────\n"
+            "Gemini 4 Neon · xhigh\n"
+            + "\n" * 40
         )
         self.assertEqual(
-            self.detector.detect_state(
-                "gemini",
-                "✋ Action Required (repo)",
-                screen,
-            ),
-            "working",
+            self.detector.detect_state("agy", "build-host", idle),
+            "idle",
         )
 
-    def test_gemini_native_status_is_not_used_as_a_topic(self):
-        self.assertEqual(self.detector.title_subject("◇ Ready (repo)"), "")
-        self.assertEqual(self.detector.title_subject("✦ Working (repo)"), "")
-        self.assertEqual(
-            self.detector.title_subject("✦ Reviewing changes (repo)"),
-            "",
+    def test_agy_old_approval_outside_nonblank_tail_is_ignored(self):
+        screen = (
+            "Run this command?\n"
+            "Yes, allow tool call\n"
+            + "\n".join(f"output {index}" for index in range(13))
+            + "\n" * 30
         )
         self.assertEqual(
-            self.detector.title_subject("⏲ Working… (repo)"),
-            "",
-        )
-
-    def test_gemini_old_permission_text_outside_tail_is_ignored(self):
-        screen = "Allow execution?\n" + "\n".join(
-            f"output {index}" for index in range(13)
-        )
-        self.assertEqual(
-            self.detector.detect_state("gemini", "◇ Ready (repo)", screen),
+            self.detector.detect_state("agy", "build-host", screen),
             "idle",
         )
 

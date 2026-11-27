@@ -1,0 +1,25 @@
+{
+  "tmuxcue": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent agy --state done",
+        "timeout": 5
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent agy --state running",
+        "timeout": 5
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "\"$HOME/.local/bin/tmuxcue-hook\" --agent agy --state done",
+        "timeout": 5
+      }
+    ]
+  }
+}

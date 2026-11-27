@@ -10,15 +10,19 @@ import subprocess
 import time
 from typing import Callable
 
-from .core import Metadata, PaneRow, clean_text, is_generic_input, shorten
-from .gemini import (
-    gemini_bound_session_id,
-    gemini_configured_model,
-    gemini_model_from_command,
-    gemini_state_dir,
-    load_gemini_sessions,
-    select_gemini_session,
+from .agy import (
+    agy_annotation_title,
+    agy_bound_conversation_id,
+    agy_configured_model,
+    agy_conversation_from_command,
+    agy_model_from_command,
+    agy_open_conversation_ids,
+    agy_runtime_snapshot,
+    agy_state_dir,
+    latest_agy_input,
+    load_agy_conversation,
 )
+from .core import Metadata, PaneRow, clean_text, is_generic_input, shorten
 from .processes import ProcessInfo, ProcessSnapshot, discover_agent_processes
 
 UUID_RE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b", re.I)
@@ -73,6 +77,7 @@ class MetadataResolver:
         self.uid = os.getuid() if uid is None else uid
         self._process_snapshot: ProcessSnapshot = {}
         self._process_snapshot_at = 0.0
+        self._agy_state_dirs: dict[str, Path] = {}
 
     def run(self, *args: str, timeout: float = 5) -> str:
         return self.command(tuple(args), timeout)
@@ -119,13 +124,16 @@ class MetadataResolver:
             model, topic, session_id = self.claude_metadata(
                 cwd, process[0] if process else None
             )
-        elif row.agent == "gemini":
-            model, topic, session_id = self.gemini_metadata(
+        elif row.agent == "agy":
+            model, topic, session_id = self.agy_metadata(
                 cwd,
                 row.tty,
                 process,
                 hook_events or {},
             )
+            fallback_subject = Path(cwd).name if cwd else row.subject
+            topic = shorten(topic or fallback_subject, self.topic_width)
+            return Metadata(row.agent, model, topic, session_id)
         else:
             model, topic, session_id = "", row.subject, ""
 
@@ -378,7 +386,7 @@ class MetadataResolver:
             topic = thread["title"] or ""
         return thread["model"] or "", topic, thread["id"]
 
-    def gemini_metadata(
+    def agy_metadata(
         self,
         cwd: str,
         tty: str,
@@ -386,35 +394,51 @@ class MetadataResolver:
         hook_events: dict[tuple[str, str], dict],
     ) -> tuple[str, str, str]:
         pid = process[0] if process else 0
-        started_at = process[1] if process else 0
         command = process[2] if process else ""
-        state_dir = gemini_state_dir(
+        state_dir = agy_state_dir(
             self.home,
             pid,
             proc_root=self.proc_root,
             uid=self.uid,
         )
-        sessions = load_gemini_sessions(state_dir)
-        session_id = (
-            gemini_bound_session_id(hook_events, process, tty) if process else ""
+        model = agy_model_from_command(command) or agy_configured_model(state_dir)
+
+        session_id = ""
+        open_ids = agy_open_conversation_ids(
+            state_dir,
+            pid,
+            proc_root=self.proc_root,
+            uid=self.uid,
         )
+        if len(open_ids) == 1:
+            session_id = next(iter(open_ids))
+        elif len(open_ids) > 1:
+            candidates = [
+                conv
+                for cid in open_ids
+                if (conv := load_agy_conversation(state_dir, cid)) is not None
+            ]
+            if candidates:
+                session_id = max(candidates, key=lambda c: c.last_modified).conversation_id
+            else:
+                session_id = sorted(open_ids)[0]
+
         if not session_id and process:
-            resumed = UUID_RE.search(command)
-            session_id = resumed.group(0) if resumed else ""
-        session = select_gemini_session(
-            sessions,
-            session_id=session_id,
-            project_root=cwd,
-            process_started_at=started_at,
-        )
-        model = (
-            (session.model if session else "")
-            or gemini_model_from_command(command)
-            or gemini_configured_model(state_dir)
-        )
-        if session is None:
-            return model, "", ""
-        return model, session.topic, session.session_id
+            session_id = agy_bound_conversation_id(hook_events, process, tty)
+        if not session_id and command:
+            session_id = agy_conversation_from_command(command)
+
+        topic = ""
+        if session_id:
+            self._agy_state_dirs[session_id] = state_dir
+            conversation = load_agy_conversation(state_dir, session_id)
+            if conversation is not None:
+                topic = conversation.title or conversation.preview
+            if not topic:
+                topic = agy_annotation_title(state_dir, session_id)
+        if not topic and cwd:
+            topic = latest_agy_input(state_dir, cwd)
+        return model, topic, session_id
 
     def runtime_snapshot(self, metadata: Metadata) -> RuntimeSnapshot:
         if not metadata.session_id:
@@ -426,6 +450,11 @@ class MetadataResolver:
             return self.codex_runtime_snapshot(metadata.session_id)
         if metadata.agent == "claude":
             return self.claude_runtime_snapshot(metadata.session_id)
+        if metadata.agent == "agy":
+            state_dir = self._agy_state_dirs.get(metadata.session_id) or agy_state_dir(
+                self.home
+            )
+            return agy_runtime_snapshot(state_dir, metadata.session_id)
         return None, 0.0
 
     def runtime_state(self, metadata: Metadata) -> str | None:

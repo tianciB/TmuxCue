@@ -31,11 +31,12 @@ CLAUDE_APPROVAL_PATTERNS = (
     r"elicitation",
 )
 
-GEMINI_APPROVAL_PATTERNS = (
-    r"allow execution\?",
-    r"allow once",
-    r"allow for this session",
-    r"action required",
+AGY_APPROVAL_PATTERNS = (
+    r"do you want to proceed\?",
+    r"run this command\?",
+    r"accept this file edit\?",
+    r"yes,\s*allow\s+(?:access|creation|tool call)",
+    r"yes,\s*accept this change",
     r"waiting for approval",
     r"permission (?:required|requested)",
 )
@@ -45,9 +46,12 @@ WORKING_PATTERNS = (
     r"ctrl\+c to interrupt",
 )
 
-GEMINI_WORKING_PATTERNS = WORKING_PATTERNS + (
+AGY_WORKING_PATTERNS = WORKING_PATTERNS + (
     r"esc to cancel",
-    r"\bworking\b",
+)
+
+AGY_SPINNER_LINE = re.compile(
+    r"^\s*[⠀-⣿]\s+\S+",
 )
 
 CLAUDE_ACTIVITY = re.compile(
@@ -70,7 +74,7 @@ SIDE_CONTEXT = re.compile(
 
 
 class TmuxDetector:
-    """Detect Codex, Claude, and Gemini panes from native tmux state."""
+    """Detect Codex, Claude, and Agy panes from native tmux state."""
 
     def __init__(
         self,
@@ -149,7 +153,7 @@ class TmuxDetector:
         self, current_command: str, tty: str, processes: ProcessSnapshot | None = None
     ) -> str:
         command = current_command.lower()
-        if command in {"codex", "claude", "claude-code", "gemini"}:
+        if command in {"codex", "claude", "claude-code", "agy"}:
             if command.startswith("claude"):
                 return "claude"
             return command
@@ -171,8 +175,6 @@ class TmuxDetector:
     @classmethod
     def title_subject(cls, title: str) -> str:
         value = (title or "").strip()
-        if value.startswith(("✦", "✋", "◇", "⏲")):
-            return ""
         if cls.title_is_working(value):
             value = value[1:].lstrip()
         return value.rsplit(" | ", 1)[0].strip()
@@ -210,6 +212,19 @@ class TmuxDetector:
             )
         return False
 
+    @staticmethod
+    def agy_footer_is_working(screen_lines: list[str]) -> bool:
+        """Check the active non-blank tail of an Agy TUI pane."""
+        tail = [line for line in screen_lines if line.strip()][-12:]
+        if not tail:
+            return False
+        if any(
+            re.search(pattern, "\n".join(tail), flags=re.I | re.S)
+            for pattern in AGY_WORKING_PATTERNS
+        ):
+            return True
+        return any(AGY_SPINNER_LINE.match(line) for line in tail[-6:])
+
     def detect_state(self, agent: str, title: str, screen: str) -> str:
         title_text = title or ""
         screen_lines = (screen or "").splitlines()
@@ -220,33 +235,33 @@ class TmuxDetector:
         elif agent == "claude":
             approval_patterns = CLAUDE_APPROVAL_PATTERNS
             working_patterns = WORKING_PATTERNS
-        elif agent == "gemini":
-            approval_patterns = GEMINI_APPROVAL_PATTERNS
-            working_patterns = GEMINI_WORKING_PATTERNS
+        elif agent == "agy":
+            approval_patterns = AGY_APPROVAL_PATTERNS
+            working_patterns = AGY_WORKING_PATTERNS
         else:
             approval_patterns = ()
             working_patterns = WORKING_PATTERNS
 
         stripped_title = title_text.lstrip()
         lowered_title = stripped_title.lower()
+        if agent == "agy":
+            nonblank_tail = "\n".join(
+                [line for line in screen_lines if line.strip()][-12:]
+            )
+            if self.matches_any(approval_patterns, nonblank_tail):
+                return "blocked"
+            if self.agy_footer_is_working(screen_lines):
+                return "working"
+            return "idle"
+
         approval_tail = "\n".join(screen_lines[-12:])
         has_approval_dialog = self.matches_any(approval_patterns, approval_tail)
-        if agent == "gemini":
-            if has_approval_dialog:
-                return "blocked"
-            if (
-                stripped_title.startswith(("✦", "✋", "⏲"))
-                or "action required" in lowered_title
-                or "working" in lowered_title
-            ):
-                return "working"
-        else:
-            if "action required" in lowered_title:
-                return "blocked"
-            if self.title_is_working(title_text):
-                return "working"
-            if has_approval_dialog:
-                return "blocked"
+        if "action required" in lowered_title:
+            return "blocked"
+        if self.title_is_working(title_text):
+            return "working"
+        if has_approval_dialog:
+            return "blocked"
         if agent == "claude" and self.claude_footer_is_working(screen):
             return "working"
         working_tail = "\n".join(screen_lines[-12:])

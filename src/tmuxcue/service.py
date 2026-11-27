@@ -317,7 +317,7 @@ class IndicatorDaemon:
         if row.state == "blocked":
             self.raw_observation_times[target] = self.last_scan
             return row.state
-        if row.state != "working" and row.agent not in {"claude", "codex"}:
+        if row.state != "working" and row.agent not in {"claude", "codex", "agy"}:
             self.raw_observation_times[target] = self.last_scan
             return row.state
 
@@ -356,8 +356,14 @@ class IndicatorDaemon:
                     self.raw_observation_times[target] = self.last_scan
                     return "working"
             observation_time = event_time or self.runtime_times.get(target, now)
-            if runtime_state == "working":
-                if row.agent == "claude":
+            if runtime_state == "blocked":
+                observation_time = max(
+                    observation_time,
+                    self.last_scan,
+                    self.runtime_times.get(target, now),
+                )
+            elif runtime_state == "working":
+                if row.agent in {"claude", "agy"}:
                     observation_time = max(
                         observation_time,
                         self.last_scan,
@@ -366,6 +372,8 @@ class IndicatorDaemon:
                 elif row.state == "working":
                     observation_time = max(observation_time, self.last_scan)
             self.raw_observation_times[target] = observation_time
+            if runtime_state == "blocked":
+                return "blocked"
             if runtime_state == "working":
                 return "working"
             if runtime_state == "aborted":
@@ -665,7 +673,7 @@ def print_completion(shell: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tmuxcue",
-        description="Safe status titles for Codex, Claude, and Gemini tmux windows",
+        description="Safe status titles for Codex, Claude, and Agy tmux windows",
     )
     subcommands = parser.add_subparsers(dest="command")
     subcommands.add_parser("update", help="update TmuxCue from its Git clone")

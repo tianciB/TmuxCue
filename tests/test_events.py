@@ -61,25 +61,21 @@ class EventTests(unittest.TestCase):
                     reader.poll()
                     self.assertEqual(loader.call_count, 2)
 
-    def test_gemini_hook_records_only_process_binding_metadata(self):
+    def test_agy_hook_records_only_process_binding_metadata(self):
         input_data = {
-            "session_id": "11111111-1111-1111-1111-111111111111",
-            "transcript_path": "/private/transcript.jsonl",
+            "conversationId": "11111111-1111-1111-1111-111111111111",
+            "transcriptPath": "/private/transcript.jsonl",
             "cwd": "/private/project",
-            "hook_event_name": "Notification",
-            "notification_type": "ToolPermission",
-            "message": "private permission message",
-            "details": {
-                "tool_name": "run_shell_command",
-                "path": "/private/file",
-            },
+            "hookEventName": "PreInvocation",
+            "lastUserInput": "private user prompt",
+            "modelName": "auto",
         }
         binding = ProcessBinding(
-            agent="gemini",
+            agent="agy",
             pid=321,
             started_at=900,
-            tty="/dev/pts/7",
-            cmdline="node /opt/node_modules/.bin/gemini",
+            tty="/dev/pts/4",
+            cmdline="/opt/agy/bin/agy --model neon-xhigh",
         )
         with tempfile.TemporaryDirectory() as directory:
             with (
@@ -89,9 +85,9 @@ class EventTests(unittest.TestCase):
                 redirect_stdout(io.StringIO()) as output,
             ):
                 result = hook.entrypoint(
-                    ["--agent", "gemini", "--state", "approval"]
+                    ["--agent", "agy", "--state", "running"]
                 )
-                event = load_events()[("gemini", input_data["session_id"])]
+                event = load_events()[("agy", input_data["conversationId"])]
 
             self.assertEqual(result, 0)
             self.assertEqual(output.getvalue(), "{}\n")
@@ -108,9 +104,10 @@ class EventTests(unittest.TestCase):
                     "tty",
                 },
             )
+            self.assertEqual(event["event"], "PreInvocation")
             self.assertEqual(event["pid"], 321)
             self.assertEqual(event["started_at"], 900)
-            self.assertEqual(event["tty"], "/dev/pts/7")
+            self.assertEqual(event["tty"], "/dev/pts/4")
 
 
 

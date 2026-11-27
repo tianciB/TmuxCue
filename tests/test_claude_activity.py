@@ -121,7 +121,7 @@ class ClaudeActivityDetectorTests(unittest.TestCase):
                 )
 
     def test_claude_footer_does_not_change_other_agents(self):
-        for agent in ("codex", "gemini", "unknown"):
+        for agent in ("codex", "agy", "unknown"):
             for status in (PROGRESS, WAITING):
                 with self.subTest(agent=agent, status=status):
                     self.assertEqual(self.state(frame(status), agent), "idle")

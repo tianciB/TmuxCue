@@ -4,9 +4,9 @@ import tempfile
 import unittest
 
 from tmuxcue.processes import (
+    classify_agent,
     discover_agent_processes,
     find_agent_ancestor,
-    is_gemini_cli_command,
 )
 
 
@@ -73,55 +73,41 @@ class ProcessDiscoveryTests(unittest.TestCase):
         (proc / "stat").write_text("cpu 1 2 3 4\nbtime 1000\n", encoding="utf-8")
         return temporary, proc
 
-    def test_official_gemini_node_entrypoint_is_detected(self):
+    def test_agy_foreground_process_is_detected_under_wrapper_group(self):
         temporary, proc = self.proc_tree()
         with temporary:
             self.add_process(
                 proc,
-                201,
-                comm="node",
-                cmdline=[
-                    "node",
-                    "/opt/app/node_modules/.bin/gemini",
-                    "--model",
-                    "gemini-test",
-                ],
-                tty="/dev/pts/7",
+                200,
+                comm="bash",
+                cmdline=["bash", "/opt/bin/agy"],
+                tty="/dev/pts/4",
                 process_group=200,
                 foreground_group=200,
             )
-
-            rows = discover_agent_processes(proc, uid=os.getuid(), now=2_000)
-
-            self.assertEqual(rows[("/dev/pts/7", "gemini")][0], 201)
-            self.assertIn("gemini-test", rows[("/dev/pts/7", "gemini")][2])
-
-    def test_unrelated_node_command_containing_gemini_is_rejected(self):
-        self.assertFalse(is_gemini_cli_command("node /srv/gemini-report/server.js"))
-        self.assertFalse(is_gemini_cli_command("node /srv/tools/gemini.js"))
-
-    def test_deepest_official_gemini_node_layer_wins_one_tty(self):
-        temporary, proc = self.proc_tree()
-        with temporary:
             self.add_process(
                 proc,
                 201,
                 comm="node",
-                cmdline=["node", "/opt/node_modules/.bin/gemini"],
-                tty="/dev/pts/7",
+                cmdline=["node", "/opt/agy/bridge.mjs"],
+                tty="/dev/pts/4",
+                parent=200,
                 process_group=200,
                 foreground_group=200,
             )
             self.add_process(
                 proc,
                 202,
-                comm="node",
+                comm="agy",
                 cmdline=[
-                    "node",
-                    "--max-old-space-size=4096",
-                    "/opt/node_modules/.bin/gemini",
+                    "/opt/agy/bin/agy",
+                    "--model",
+                    "neon-xhigh",
+                    "--effort",
+                    "xhigh",
                 ],
-                tty="/dev/pts/7",
+                tty="/dev/pts/4",
+                parent=200,
                 process_group=200,
                 foreground_group=200,
                 start_ticks=510,
@@ -129,18 +115,30 @@ class ProcessDiscoveryTests(unittest.TestCase):
 
             rows = discover_agent_processes(proc, uid=os.getuid(), now=2_000)
 
-            self.assertEqual(rows[("/dev/pts/7", "gemini")][0], 202)
+            self.assertEqual(set(rows), {("/dev/pts/4", "agy")})
+            self.assertEqual(rows[("/dev/pts/4", "agy")][0], 202)
+            self.assertIn("neon-xhigh", rows[("/dev/pts/4", "agy")][2])
 
-    def test_hook_parent_walk_finds_nearest_gemini_process(self):
+    def test_legacy_gemini_node_process_is_not_classified(self):
+        self.assertEqual(
+            classify_agent("node", "node /opt/app/node_modules/.bin/gemini"),
+            "",
+        )
+        self.assertEqual(
+            classify_agent("gemini", "gemini"),
+            "",
+        )
+
+    def test_hook_parent_walk_finds_nearest_agy_process(self):
         temporary, proc = self.proc_tree()
         with temporary:
             self.add_process(
                 proc,
                 202,
-                comm="node",
-                cmdline=["node", "/opt/node_modules/.bin/gemini"],
-                tty="/dev/pts/7",
-                parent=201,
+                comm="agy",
+                cmdline=["/opt/agy/bin/agy", "--model", "neon-xhigh"],
+                tty="/dev/pts/4",
+                parent=200,
                 process_group=200,
                 foreground_group=200,
                 start_ticks=510,
@@ -150,7 +148,7 @@ class ProcessDiscoveryTests(unittest.TestCase):
                 300,
                 comm="sh",
                 cmdline=["sh", "-c", "tmuxcue-hook"],
-                tty="/dev/pts/7",
+                tty="/dev/pts/4",
                 parent=202,
                 process_group=200,
                 foreground_group=200,
@@ -158,7 +156,7 @@ class ProcessDiscoveryTests(unittest.TestCase):
             )
 
             binding = find_agent_ancestor(
-                "gemini",
+                "agy",
                 start_pid=300,
                 proc_root=proc,
                 uid=os.getuid(),
@@ -166,7 +164,7 @@ class ProcessDiscoveryTests(unittest.TestCase):
 
             self.assertIsNotNone(binding)
             self.assertEqual(binding.pid, 202)
-            self.assertEqual(binding.tty, "/dev/pts/7")
+            self.assertEqual(binding.tty, "/dev/pts/4")
 
 
 if __name__ == "__main__":

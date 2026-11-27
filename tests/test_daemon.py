@@ -93,41 +93,49 @@ class DaemonTests(unittest.TestCase):
             "running",
         )
 
-    def test_gemini_working_scan_supersedes_older_permission_hook(self):
+    def test_agy_working_scan_and_runtime_promote_or_block_state(self):
         daemon = IndicatorDaemon()
         now = time.time()
         row = PaneRow(
-            "%7",
-            "g:0",
-            "gemini",
-            "working",
+            "%2",
+            "a:0",
+            "agy",
+            "idle",
             "/repo",
             "",
-            "/dev/pts/7",
+            "/dev/pts/4",
             321,
             int(now - 100),
-            "node /opt/node_modules/.bin/gemini",
+            "/opt/agy/bin/agy --model neon-xhigh",
         )
-        metadata = Metadata("gemini", "model", "topic", "session")
+        metadata = Metadata("agy", "neon-xhigh", "topic", "conv-1")
         daemon.last_scan = now
-        daemon.metadata_resolver.runtime_snapshot = Mock(return_value=(None, 0.0))
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("working", now - 10)
+        )
 
-        raw_state = daemon.raw_state("g:0", row, metadata, now)
-
+        raw_state = daemon.raw_state("a:0", row, metadata, now)
         self.assertEqual(raw_state, "working")
         self.assertEqual(
             daemon.resolve_state(
                 row,
                 raw_state,
                 None,
-                {
-                    "state": "approval",
-                    "event": "Notification",
-                    "timestamp": now - 5,
-                },
+                {"state": "done", "event": "Stop", "timestamp": now - 5},
                 now,
             ),
             "running",
+        )
+
+        daemon.runtime_times["a:0"] = 0
+        daemon.metadata_resolver.runtime_snapshot = Mock(
+            return_value=("blocked", now)
+        )
+        raw_state = daemon.raw_state("a:0", row, metadata, now + 2)
+        self.assertEqual(raw_state, "blocked")
+        self.assertEqual(
+            daemon.resolve_state(row, raw_state, None, None, now + 2),
+            "approval",
         )
 
     def test_claude_busy_runtime_promotes_an_idle_native_pane(self):
@@ -764,43 +772,43 @@ class DaemonTests(unittest.TestCase):
         self.assertEqual(refreshed, {"a:0", "b:0"})
         self.assertEqual(daemon.metadata_resolver.resolve.call_count, 1)
 
-    def test_gemini_hook_events_are_passed_to_metadata_resolution(self):
+    def test_agy_hook_events_are_passed_to_metadata_resolution(self):
         daemon = IndicatorDaemon()
         row = PaneRow(
-            "%7",
-            "g:0",
-            "gemini",
+            "%2",
+            "a:0",
+            "agy",
             "idle",
             "/repo",
             "",
-            "/dev/pts/7",
+            "/dev/pts/4",
             321,
             900,
-            "node /opt/node_modules/.bin/gemini",
+            "/opt/agy/bin/agy --model neon-xhigh",
         )
         events = {
-            ("gemini", "session-1"): {
-                "agent": "gemini",
-                "session_id": "session-1",
+            ("agy", "conv-1"): {
+                "agent": "agy",
+                "session_id": "conv-1",
                 "state": "running",
                 "timestamp": 901,
                 "pid": 321,
                 "started_at": 900,
-                "tty": "/dev/pts/7",
+                "tty": "/dev/pts/4",
             }
         }
-        daemon.rows = {"g:0": row}
+        daemon.rows = {"a:0": row}
         daemon.metadata_resolver.resolve = Mock(
-            return_value=Metadata("gemini", "model", "topic", "session-1")
+            return_value=Metadata("agy", "neon-xhigh", "topic", "conv-1")
         )
 
         refreshed = daemon.refresh_metadata_targets(
-            {"g:0"},
+            {"a:0"},
             time.time(),
             hook_events=events,
         )
 
-        self.assertEqual(refreshed, {"g:0"})
+        self.assertEqual(refreshed, {"a:0"})
         daemon.metadata_resolver.resolve.assert_called_once_with(
             row,
             processes=None,
@@ -864,21 +872,21 @@ class DaemonTests(unittest.TestCase):
         _, tmux_title = IndicatorDaemon.format_title(pane, "running", metadata, 2)
         self.assertIn("[tmux]", tmux_title)
 
-    def test_gemini_uses_the_shared_tmux_title_format(self):
+    def test_agy_uses_the_shared_tmux_title_format(self):
         row = PaneRow(
-            "%3",
-            "gemini:0",
-            "gemini",
+            "%2",
+            "agy:0",
+            "agy",
             "working",
             "/repo",
             "",
-            "/dev/pts/7",
+            "/dev/pts/4",
         )
         metadata = Metadata(
-            "gemini",
-            "gemini-test",
-            "Fix session binding",
-            "session-1",
+            "agy",
+            "neon-xhigh",
+            "Analyze repository status",
+            "conv-1",
         )
 
         icon, title = IndicatorDaemon.format_title(row, "running", metadata, 0)
@@ -886,7 +894,7 @@ class DaemonTests(unittest.TestCase):
         self.assertEqual(icon, "🌑")
         self.assertEqual(
             title,
-            "🌑 [tmux] gemini/gemini-test: Fix session binding",
+            "🌑 [tmux] agy/neon-xhigh: Analyze repository status",
         )
 
     def test_tmux_snippet_never_executes_shell_commands(self):
